@@ -9,19 +9,23 @@ Created on Thu Mar  6 18:20:56 2025
 # Import the simulation module
 from library_simulation import run_library_simulation_with_frames
 
+# Import the student data
+from student_data import student_data
+
 # Define operating hours
 START_HOUR = 8    # 8am
 END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 4  # 15-minute steps
 
-# Use animation with playback controls
+# Use animation with playback controls and student data
 model = run_library_simulation_with_frames(
     steps=HOURS_TO_SIMULATE * STEPS_PER_HOUR,  # Steps for 12 hours (8am-8pm)
-    student_count=500,
+    student_count=10,
     update_interval=4,  # Create a frame every hour
     start_hour=START_HOUR,
-    end_hour=END_HOUR
+    end_hour=END_HOUR,
+    student_data=student_data
 )
 
 # After simulation completes, analyze the data
