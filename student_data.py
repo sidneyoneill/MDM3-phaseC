@@ -1,18 +1,19 @@
-# Define student data with faculty, year, preferred library, and study hours
+# Define student data with faculty, year, preferred library, and schedule
+# Schedule can have values: "library", "lecture", or None (for off campus)
 student_data = {
     0: {
         "faculty": "Engineering",
         "year": 2,
         "preferred_library_id": 1,  # Engineering Library
         "schedule": {
-            9: True,   # 9am
-            10: True,  # 10am
-            11: True,  # 11am
-            12: False, # Lunch break
-            13: False, # Lunch break
-            14: True,  # 2pm
-            15: True,  # 3pm
-            16: True,  # 4pm
+            9: "lecture",    # 9am
+            10: "lecture",   # 10am
+            11: "library",   # 11am
+            12: None,        # Lunch break
+            13: None,        # Lunch break  
+            14: "library",   # 2pm
+            15: "library",   # 3pm
+            16: "library",   # 4pm
         }
     },
     1: {
@@ -20,14 +21,14 @@ student_data = {
         "year": 3,
         "preferred_library_id": 2,  # Arts Library
         "schedule": {
-            10: True,  # 10am
-            11: True,  # 11am
-            12: True,  # 12pm
-            13: False, # Break
-            14: False, # Break
-            15: True,  # 3pm
-            16: True,  # 4pm
-            17: True,  # 5pm
+            10: "lecture",   # 10am
+            11: "lecture",   # 11am
+            12: "library",   # 12pm
+            13: None,        # Break
+            14: None,        # Break
+            15: "library",   # 3pm
+            16: "library",   # 4pm
+            17: "library",   # 5pm
         }
     },
     2: {
@@ -35,13 +36,13 @@ student_data = {
         "year": 1,
         "preferred_library_id": 3,  # Science Library
         "schedule": {
-            8: True,   # 8am (early bird)
-            9: True,   # 9am
-            10: True,  # 10am
-            11: False, # Break
-            12: False, # Lunch
-            13: True,  # 1pm
-            14: True,  # 2pm
+            8: "library",    # 8am (early bird)
+            9: "library",    # 9am
+            10: "library",   # 10am
+            11: None,        # Break
+            12: None,        # Lunch
+            13: "lecture",   # 1pm
+            14: "lecture",   # 2pm
         }
     },
     3: {
@@ -49,15 +50,15 @@ student_data = {
         "year": 4,
         "preferred_library_id": 4,  # Medical Library
         "schedule": {
-            11: True,  # 11am
-            12: True,  # 12pm
-            13: True,  # 1pm
-            14: True,  # 2pm
-            15: True,  # 3pm
-            16: False, # Break
-            17: True,  # 5pm
-            18: True,  # 6pm
-            19: True,  # 7pm
+            11: "lecture",   # 11am
+            12: "lecture",   # 12pm
+            13: "lecture",   # 1pm
+            14: "library",   # 2pm
+            15: "library",   # 3pm
+            16: None,        # Break
+            17: "library",   # 5pm
+            18: "library",   # 6pm
+            19: "library",   # 7pm
         }
     },
     4: {
@@ -65,14 +66,14 @@ student_data = {
         "year": 2,
         "preferred_library_id": 5,  # Business Library
         "schedule": {
-            9: True,   # 9am
-            10: True,  # 10am
-            11: False, # Break
-            12: False, # Lunch
-            13: True,  # 1pm
-            14: True,  # 2pm
-            15: True,  # 3pm
-            16: True,  # 4pm
+            9: "lecture",    # 9am
+            10: "lecture",   # 10am
+            11: None,        # Break
+            12: None,        # Lunch
+            13: "library",   # 1pm
+            14: "library",   # 2pm
+            15: "library",   # 3pm
+            16: "library",   # 4pm
         }
     },
     5: {
@@ -80,12 +81,12 @@ student_data = {
         "year": 3,
         "preferred_library_id": 1,  # Engineering Library
         "schedule": {
-            13: True,  # 1pm
-            14: True,  # 2pm
-            15: True,  # 3pm
-            16: True,  # 4pm
-            17: True,  # 5pm
-            18: True,  # 6pm
+            13: "lecture",   # 1pm
+            14: "lecture",   # 2pm
+            15: "library",   # 3pm
+            16: "library",   # 4pm
+            17: "library",   # 5pm
+            18: "library",   # 6pm
         }
     },
     6: {
@@ -93,14 +94,14 @@ student_data = {
         "year": 1,
         "preferred_library_id": 2,  # Arts Library
         "schedule": {
-            8: True,   # 8am
-            9: True,   # 9am
-            10: True,  # 10am
-            11: False, # Break
-            12: False, # Lunch
-            13: False, # Break
-            14: True,  # 2pm
-            15: True,  # 3pm
+            8: "library",    # 8am
+            9: "library",    # 9am
+            10: "library",   # 10am
+            11: None,        # Break
+            12: None,        # Lunch
+            13: None,        # Break
+            14: "lecture",   # 2pm
+            15: "lecture",   # 3pm
         }
     },
     7: {
@@ -108,14 +109,14 @@ student_data = {
         "year": 4,
         "preferred_library_id": 3,  # Science Library
         "schedule": {
-            10: True,  # 10am
-            11: True,  # 11am
-            12: True,  # 12pm
-            13: False, # Lunch
-            14: True,  # 2pm
-            15: True,  # 3pm
-            16: True,  # 4pm
-            17: True,  # 5pm
+            10: "lecture",   # 10am
+            11: "lecture",   # 11am
+            12: "library",   # 12pm
+            13: None,        # Lunch
+            14: "library",   # 2pm
+            15: "library",   # 3pm
+            16: "library",   # 4pm
+            17: "library",   # 5pm
         }
     },
     8: {
@@ -123,15 +124,15 @@ student_data = {
         "year": 2,
         "preferred_library_id": 4,  # Medical Library
         "schedule": {
-            8: True,   # 8am
-            9: True,   # 9am
-            10: True,  # 10am
-            11: True,  # 11am
-            12: False, # Lunch
-            13: False, # Break
-            14: False, # Break
-            15: True,  # 3pm
-            16: True,  # 4pm
+            8: "lecture",    # 8am
+            9: "lecture",    # 9am
+            10: "lecture",   # 10am
+            11: "library",   # 11am
+            12: None,        # Lunch
+            13: None,        # Break
+            14: None,        # Break
+            15: "library",   # 3pm
+            16: "library",   # 4pm
         }
     },
     9: {
@@ -139,14 +140,14 @@ student_data = {
         "year": 3,
         "preferred_library_id": 5,  # Business Library
         "schedule": {
-            11: True,  # 11am
-            12: True,  # 12pm
-            13: True,  # 1pm
-            14: True,  # 2pm
-            15: False, # Break
-            16: True,  # 4pm
-            17: True,  # 5pm
-            18: True,  # 6pm
+            11: "library",   # 11am
+            12: "library",   # 12pm
+            13: "lecture",   # 1pm
+            14: "lecture",   # 2pm
+            15: None,        # Break
+            16: "library",   # 4pm
+            17: "library",   # 5pm
+            18: "library",   # 6pm
         }
     }
 }

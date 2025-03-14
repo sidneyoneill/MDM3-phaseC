@@ -30,7 +30,7 @@ class Student(mesa.Agent):
         self.faculty = None
         self.year = None
         self.preferred_library_id = None
-        self.schedule = {}
+        self.schedule = {}  # Schedule with values: "library", "lecture", or None (off campus)
         
         # Load data if provided
         if student_data:
@@ -40,18 +40,17 @@ class Student(mesa.Agent):
             self.schedule = student_data.get("schedule", {})
         else:
             print(f"Error: No student data provided for student {unique_id}")
-            # Note if student data not in place, the simulation will not run - could put dummy values in here
         
-        # Initialise location and status
+        # Initialize location and status
         self.current_library_id = 'not_in_library'
         self.target_library_id = None
         self.travel_time_remaining = 0
-        self.status = "off_campus"  # Can be "in_library", "traveling", or "off_campus"
+        self.status = "off_campus"  # Can be "in_library", "in_lecture", "traveling", or "off_campus"
         self.attempted_libraries = []  # Track libraries that were attempted but full
                 
-    def should_be_studying(self, current_hour):
-        """Check if the student should be studying at the current hour"""
-        return self.schedule.get(current_hour, False)
+    def get_schedule_activity(self, current_hour):
+        """Get the student's scheduled activity for the current hour"""
+        return self.schedule.get(current_hour)
     
     def _find_closest_library(self):
         """Find the closest library by travel time that hasn't been attempted"""
@@ -61,7 +60,7 @@ class Student(mesa.Agent):
             return random.choice(list(self.model.libraries.keys()))
             
         # First check if preferred library is the target
-        if not self.preferred_library_id in self.attempted_libraries:
+        if self.preferred_library_id not in self.attempted_libraries:
             return self.preferred_library_id
         
         # Use Dijkstra's algorithm to find shortest paths by travel time
@@ -96,9 +95,15 @@ class Student(mesa.Agent):
     def step(self):
         """Perform a step in the simulation"""
         current_hour = self.model.get_hour()
+        scheduled_activity = self.get_schedule_activity(current_hour)
         
         # If travelling, continue journey
         if self.status == "traveling":
+            # Skip travel time if going to/from off campus
+            if self.target_library_id == 'not_in_library' or self.current_library_id == 'not_in_library':
+                self.travel_time_remaining = 0
+                
+            # Continue journey
             self.travel_time_remaining -= 1
             if self.travel_time_remaining <= 0:
                 # Journey complete - update status and location
@@ -108,61 +113,121 @@ class Student(mesa.Agent):
                     self.status = "off_campus"
                     self.attempted_libraries = []  # Reset attempted libraries list
                 else:
-                    # Student is arriving at a library - NOW check if it's overcrowded
-                    if self.model.libraries[self.target_library_id].is_overcrowded():
-                        # Library is full, add to attempted libraries
-                        self.attempted_libraries.append(self.target_library_id)
-                        
-                        # Find another library to go to
-                        next_library = self._find_closest_library()
-                        
-                        current_library = self.target_library_id # Store the current target before updating it
-                        
-                        # Set the new target and continue traveling
-                        self.target_library_id = next_library
-                        self.status = "traveling"
-                        
-                        # Set travel time based on graph
-                        if self.model.graph.has_edge(current_library, next_library):
-                            travel_time_minutes = self.model.graph[current_library][next_library]['weight']
-                            travel_time_steps = math.ceil(travel_time_minutes / 15)
-                            self.travel_time_remaining = travel_time_steps
-                        else:
-                            # No direct path, set default travel time
-                            self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
-                    else:
-                        # Library has space, enter it
+                    # Student is arriving at a library
+                    # Check if they're going to a lecture or library study session
+                    if scheduled_activity == "lecture":
+                        # Going to lecture - no need to check occupancy
                         self.current_library_id = self.target_library_id
-                        self.model.libraries[self.current_library_id].add_student()
-                        self.status = "in_library"
-                        self.attempted_libraries = []  # Reset attempted libraries list
+                        self.status = "in_lecture"
+                        # We don't add to library occupancy for lectures
+                    elif scheduled_activity == "library":
+                        # Going to library - check if it's overcrowded
+                        if self.model.libraries[self.target_library_id].is_overcrowded():
+                            # Library is full, add to attempted libraries
+                            self.attempted_libraries.append(self.target_library_id)
+                            
+                            # Find another library to go to
+                            next_library = self._find_closest_library()
+                            
+                            current_library = self.target_library_id # Store the current target before updating it
+                            
+                            # Set the new target and continue traveling
+                            self.target_library_id = next_library
+                            self.status = "traveling"
+                            
+                            # Set travel time based on graph
+                            if self.model.graph.has_edge(current_library, next_library):
+                                travel_time_minutes = self.model.graph[current_library][next_library]['weight']
+                                travel_time_steps = math.ceil(travel_time_minutes / 15)
+                                self.travel_time_remaining = travel_time_steps
+                            else:
+                                # No direct path, set default travel time
+                                self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                        else:
+                            # Library has space, enter it
+                            self.current_library_id = self.target_library_id
+                            self.model.libraries[self.current_library_id].add_student()
+                            self.status = "in_library"
+                            self.attempted_libraries = []  # Reset attempted libraries list
                 
                 self.target_library_id = None
             return
         
-        # Check if student should be studying at current hour
-        should_study = self.should_be_studying(current_hour)
-        
         # Logic for students currently in a library
         if self.status == "in_library":
-            if not should_study:
+            if scheduled_activity == "lecture":
+                self.model.libraries[self.current_library_id].remove_student()
+                
+                # check if the student is already in their preferred library
+                if self.current_library_id == self.preferred_library_id:
+                    # already in preferred library, no travel time required
+                    self.status = "in_lecture"
+                else:
+                    # Not in preferred library, so travel is required
+                    self.target_library_id = self.preferred_library_id
+                    self.status = "traveling"
+                    
+                    # set travel time based on graph
+                    if self.model.graph.has_edge(self.current_library_id, self.preferred_library_id):
+                        travel_time_minutes = self.model.graph[self.current_library_id][self.preferred_library_id]['weight']
+                        self.travel_time_remaining = math.ceil(travel_time_minutes / 15)
+                    else:
+                        # No direct path, set default travel time
+                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                    
+            elif scheduled_activity != "library":
                 # Student needs to leave library (not in their schedule)
                 self.target_library_id = 'not_in_library'
                 self.model.libraries[self.current_library_id].remove_student()
                 self.status = "traveling"
-                self.travel_time_remaining = random.randint(1, 2)  # 15-30 min to leave
-            # Removed the logic for students leaving an overcrowded library since
-            # we want them to stay once they have a seat
+                # No travel time for going off campus
+                self.travel_time_remaining = 0
+                
+        # Logic for students currently in a lecture
+        elif self.status == "in_lecture":
+            if scheduled_activity == "library":
+                # Lecture ended, student wants to study in the library
+                if self.model.libraries[self.current_library_id].is_overcrowded():
+                    # Preferred library is full, find another one
+                    self.attempted_libraries.append(self.current_library_id)
+                    next_library = self._find_closest_library()
+                    self.target_library_id = next_library
+                    self.status = "traveling"
+                    
+                    # Set travel time based on graph
+                    if self.model.graph.has_edge(self.current_library_id, next_library):
+                        travel_time_minutes = self.model.graph[self.current_library_id][next_library]['weight']
+                        travel_time_steps = math.ceil(travel_time_minutes / 15)
+                        self.travel_time_remaining = travel_time_steps
+                    else:
+                        # No direct path, set default travel time
+                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                else:
+                    # Preferred library has space, enter it
+                    self.model.libraries[self.current_library_id].add_student()
+                    self.status = "in_library"
+            elif scheduled_activity != "lecture":
+                # Lecture ended, student wants to go off campus
+                self.target_library_id = 'not_in_library'
+                self.status = "traveling"
+                # No travel time for going off campus
+                self.travel_time_remaining = 0
         
         # Logic for students off campus
         elif self.status == "off_campus":
-            if should_study:
+            if scheduled_activity == "lecture":
+                # Student needs to go to a lecture
+                self.target_library_id = self.preferred_library_id
+                self.status = "traveling"
+                # No travel time for coming from off campus
+                self.travel_time_remaining = 0
+            elif scheduled_activity == "library":
                 # Student needs to go to a library - choose the preferred one first
-                # They don't know it's full until they get there
                 target_library = self._find_closest_library()
                 self.target_library_id = target_library
                 self.status = "traveling"
-                self.travel_time_remaining = random.randint(1, 4)  # 15-60 min to arrive
+                # No travel time for coming from off campus
+                self.travel_time_remaining = 0
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -234,7 +299,7 @@ class LibraryNetworkModel(mesa.Model):
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
             
         # Create student scheduler
-        self.schedule = RandomActivation(self)
+        self.schedule = RandomActivation(self) # self.schedule is an instance of RandomActivation, which is a scheduler provided by mesa
         
         # Create students
         for i in range(self.student_count):
@@ -252,6 +317,8 @@ class LibraryNetworkModel(mesa.Model):
             model_reporters={
                 "Library_Occupancy": self.get_library_occupancy,
                 "Students_Traveling": self.get_traveling_students,
+                "Students_In_Library": self.get_students_in_library,
+                "Students_In_Lecture": self.get_students_in_lecture,
                 "Students_Off_Campus": self.get_students_off_campus
             }
         )
@@ -270,7 +337,8 @@ class LibraryNetworkModel(mesa.Model):
     
     def get_hour(self):
         """Get the current hour of the day (0-23)"""
-        return int((self.current_step % self.steps_per_day) * self.hours_per_step)
+        # Calculate hour based on step and start_hour
+        return self.start_hour + int((self.current_step % self.steps_per_operating_day) * self.hours_per_step)
     
     def get_library_occupancy(self):
         """Return dictionary of library occupancies"""
@@ -284,20 +352,25 @@ class LibraryNetworkModel(mesa.Model):
         """Return count of students who are in a library"""
         return sum(1 for agent in self.schedule.agents if agent.status == "in_library")
 
+    def get_students_in_lecture(self):
+        """Return count of students who are in lecture"""
+        return sum(1 for agent in self.schedule.agents if agent.status == "in_lecture")
+
     def get_students_off_campus(self):
         """Return count of students who are not in any library"""
         return sum(1 for agent in self.schedule.agents if agent.status == "off_campus")
-    
+
     def step(self):
         """Advance the model by one step (15-minute interval)."""
-        self.schedule.step() # self.schedule is an instance of RandomActivation, which is a scheduler that calls the step() method for each agent
+        self.schedule.step() # Call RandomActivation, which randomly iterates through all the student agents and calls student.step() for each one
         self.current_step += 1
     
-        # If we reach the next hour, collect data
-        if self.current_step % 4 == 0:  # Since each step is 15 minutes, 4 steps = 1 hour
-            self.datacollector.collect(self)
-            if self.current_step % self.steps_per_day == 0:
-                self.day += 1
+        # Collect data on every step (15 minutes)
+        self.datacollector.collect(self)
+        
+        # Still track day changes
+        if self.current_step % self.steps_per_day == 0:
+            self.day += 1
     
     def get_network_visualization_data(self):
         """Get data for network visualization"""
@@ -308,6 +381,13 @@ class LibraryNetworkModel(mesa.Model):
         
         # Dictionary with ID as key and normalized location as values
         pos = {row["ID"]: (row["x"], row["y"]) for _, row in self.df_locations.iterrows()}
+        
+        # Calculate y-axis range for visualization buffer - keep all nodes from being cut off the visualisation
+        node_y_values = [pos[node][1] for node in pos]  # Extract all y-values
+        min_y = min(node_y_values)
+        max_y = max(node_y_values)
+        buffer = 0.1 * (max_y - min_y)  # Add 10% padding above the highest node
+
         
         # Create edges for Plotly
         edge_x, edge_y, edge_labels = [], [], []
@@ -323,14 +403,27 @@ class LibraryNetworkModel(mesa.Model):
         node_y = []
         node_labels = []
         node_colors = []
+        lecture_counts = {}  # Track students in lecture at each building
+        
+        # Count students in lectures at each library
+        for agent in self.schedule.agents:
+            if agent.status == "in_lecture":
+                if agent.current_library_id in lecture_counts:
+                    lecture_counts[agent.current_library_id] += 1
+                else:
+                    lecture_counts[agent.current_library_id] = 1
         
         for node in self.graph.nodes():
             node_x.append(pos[node][0])
             node_y.append(pos[node][1])
             
             library = self.libraries[node]
+            lecture_count = lecture_counts.get(node, 0)
+            
+            # Include lecture count in node label
+            node_labels.append(f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}")
+            
             occupancy_pct = library.get_occupancy_percentage()
-            node_labels.append(f"{library.name}<br>{library.occupancy}/{library.capacity}")
             
             # Color node based on occupancy percentage
             if occupancy_pct < 50:
@@ -344,11 +437,12 @@ class LibraryNetworkModel(mesa.Model):
             
         # Get counts for different student states
         students_in_libraries = self.get_students_in_library()
+        students_in_lecture = self.get_students_in_lecture()
         students_traveling = self.get_traveling_students()
         students_off_campus = self.get_students_off_campus()
         
         # Verify total matches
-        total_students = students_in_libraries + students_traveling + students_off_campus
+        total_students = students_in_libraries + students_in_lecture + students_traveling + students_off_campus
             
         # Add this information to the title
         current_hour = self.get_hour()
@@ -364,16 +458,22 @@ class LibraryNetworkModel(mesa.Model):
             'day': self.day,
             'hour': current_hour,
             'students_in_libraries': students_in_libraries,
+            'students_in_lecture': students_in_lecture,
             'students_traveling': students_traveling, 
             'students_off_campus': students_off_campus,
-            'total_students': total_students
+            'total_students': total_students,
+            'min_y': min_y, 
+            'max_y': max_y,
+            'buffer': buffer
         }
+    
 #---------------------------------------------------------------------------------------------------------------
 
-def run_library_simulation_with_frames(steps=48, student_count=10, update_interval=4, 
-                                        start_hour=8, end_hour=20, student_data=None):
+def run_library_simulation_with_frames(steps=48, student_count=10, update_interval=1, 
+                                      start_hour=8, end_hour=20, student_data=None):
     """
     Run the library simulation and create an animation with frames
+    Update interval of 1 means create a frame for every step (15 minutes)
     """ 
     # Create the model with specified operating hours and student data
     model = LibraryNetworkModel(
@@ -383,23 +483,27 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
         student_data=student_data
     )
     
-    # Force the model's initial hour to match start_hour - ensure start at beginning of desired time range
-    # model.current_step = start_hour * 4  # 4 steps per hour
-    
-    # Create a frame for each hour we want to display - include the end hour
+    # Create a frame for each 15-minute interval
     frames = []
     
-    # First, run the simulation for each hour we want to display (including end_hour)
-    for hour in range(start_hour, end_hour + 1):
-        # Set the model's time to this hour
-        model.current_step = hour * 4  # 4 steps per hour
+    # Calculate total number of 15-minute intervals (4 per hour)
+    total_intervals = (end_hour - start_hour) * 4 + 1
+    
+    # Run simulation for each 15-minute interval
+    for step in range(total_intervals):
+        # Set the model's time to this step
+        model.current_step = step
         
-        # Get network data for this hour
+        # Calculate current hour and minutes
+        current_hour = start_hour + (step // 4)
+        current_minute = (step % 4) * 15
+        
+        # Get network data for this step
         vis_data = model.get_network_visualization_data()
         
-        # Create a frame for this hour
+        # Create a frame for this step
         frame = {
-            "name": f"hour_{hour}",
+            "name": f"step_{step}",
             "data": [
                 # Edges
                 {
@@ -436,8 +540,9 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
                 }
             ],
             "layout": {
-                "title": (f"Library Network - Day {vis_data['day']}, Hour {hour}:00<br>"
+                "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
                           f"Students: {vis_data['students_in_libraries']} in Libraries, "
+                          f"{vis_data['students_in_lecture']} in Lectures, "
                           f"{vis_data['students_traveling']} Traveling, "
                           f"{vis_data['students_off_campus']} Off Campus "
                           f"(Total: {vis_data['total_students']}/{student_count})")
@@ -447,19 +552,30 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
         # Add the frame
         frames.append(frame)
         
-        # Now run the simulation for update_interval steps to get to the next hour
-        for _ in range(update_interval):
+        # Run the simulation for one step (15 minutes)
+        if step < total_intervals - 1:  # Don't step after the last frame
             model.step()
     
-    # Now create the slider steps - one for each hour, including end_hour
+    # Create slider steps for all 15-minute intervals
     slider_steps = []
-    for i, hour in enumerate(range(start_hour, end_hour + 1)):
+    
+    for step in range(total_intervals):
+        current_hour = start_hour + (step // 4)
+        current_minute = (step % 4) * 15
+        
+        # Only add hour marks as labeled steps
+        if current_minute == 0:
+            label = f"{current_hour}:00"
+        else:
+            # For 15-min intervals, use a small mark "|" instead of a label
+            label = "|"
+            
         slider_steps.append({
             "args": [
-                [f"hour_{hour}"],
+                [f"step_{step}"],
                 {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"}
             ],
-            "label": f"{hour}:00",
+            "label": label,
             "method": "animate"
         })
     
@@ -495,7 +611,7 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
                 "yanchor": "top"
             }],
             sliders=[{
-                "active": 0,  # Set the initial active frame to 0 (8am)
+                "active": 0,
                 "steps": slider_steps,
                 "x": 0.1,
                 "y": 0,
@@ -503,13 +619,15 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
                 "len": 0.9,
                 "currentvalue": {
                     "visible": True,
-                    "prefix": "Hour: ",
+                    "prefix": "Time: ",
                     "xanchor": "right",
                     "font": {"size": 16, "color": "#666"}
                 }
             }],
             height=1000,
-            width=1500
+            width=1500, 
+            yaxis=dict(range=[vis_data['min_y'] - vis_data['buffer'], 
+                      vis_data['max_y'] + vis_data['buffer']])
         ),
         frames=frames
     )
@@ -518,3 +636,4 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
     fig.show(renderer="browser")
     
     return model
+
