@@ -346,11 +346,12 @@ class LibraryNetworkModel(mesa.Model):
         # Create network graph
         self.graph = self._create_graph()
         
-        # Create libraries (with estimated capacities for now)
+            
+        # Create libraries (with specific capacities from the CSV)
         self.libraries = {}
         for _, row in self.df_locations.iterrows():
-            # Example capacity calculation (replace with real data when available)
-            capacity = random.randint(50, 200)  # Random capacity between 50-200
+            # Use the capacity from the CSV file instead of random values
+            capacity = row['Capacity']  # Get capacity from the CSV
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
             
         # Create student scheduler
