@@ -1,8 +1,12 @@
-﻿ID,LibraryName ,Latitude ,Longitude
-1,Queens Building,51.45676698,-2.601982102
-2,Arts and Social Sciences,51.45966316,-2.601621733
-3,Senate House,51.4590587,-2.603427696
-4,Beacon House,51.45797596,-2.608108352
-5,Ada Lovelace ,51.4580085,-2.600718858
-6,Fry Building,51.45738592,-2.60381682
-7,MVB,51.4561237,-2.603045944
+﻿ID,LibraryName ,Latitude ,Longitude,Capacity
+1,Arts and Social Sciences,51.45966316,-2.601621733,789
+2,Chemistry,51.4565457,-2.6005917,231
+3,Education,51.4550336,-2.6049436,92
+4,Medical,51.4572921,-2.5999453,264
+5,Physics,51.4588466,-2.6022195,174
+6,Queen's Building,51.45676698,-2.601982102,168
+7,Wills Memorial,51.4561605,-2.6038808,563
+8,Beacon House,51.45797596,-2.608108352,461
+9,Brambles and Hawthorns,51.4590764,-2.6042798,213
+10,Grace Reeves,51.4571532,-2.6051381,130
+11,Senate House,51.4590587,-2.603427696,492
