@@ -15,7 +15,7 @@ START_HOUR = 8    # 8am
 END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 4  # 15-minute steps
-STUDENT_COUNT = 100  # Now simulating 100 students
+STUDENT_COUNT = 1000  # Now simulating 100 students
 
 # Generate Monte Carlo student data
 student_data = generate_student_population(

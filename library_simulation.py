@@ -97,7 +97,7 @@ class Student(mesa.Agent):
         current_hour = self.model.get_hour()
         scheduled_activity = self.get_schedule_activity(current_hour)
         
-        # If travelling, continue journey
+        # Check if traveling
         if self.status == "traveling":
             # Skip travel time if going to/from off campus
             if self.target_library_id == 'not_in_library' or self.current_library_id == 'not_in_library':
@@ -116,12 +116,30 @@ class Student(mesa.Agent):
                     # Student is arriving at a library
                     # Check if they're going to a lecture or library study session
                     if scheduled_activity == "lecture":
-                        # Going to lecture - no need to check occupancy
-                        self.current_library_id = self.target_library_id
-                        self.status = "in_lecture"
-                        # We don't add to library occupancy for lectures
+                        # Ensure target_library_id is valid before setting current_library_id
+                        if self.target_library_id is not None and self.target_library_id in self.model.libraries:
+                            self.current_library_id = self.target_library_id
+                            self.status = "in_lecture"
+                        else:
+                            # Invalid target, go off campus instead
+                            self.current_library_id = 'not_in_library'
+                            self.status = "off_campus"
                     elif scheduled_activity == "library":
-                        # Going to library - check if it's overcrowded
+                        # Ensure target_library_id is valid
+                        if self.target_library_id is None or self.target_library_id not in self.model.libraries:
+                            # Try to find another valid library
+                            self.attempted_libraries = []  # Reset to try all libraries
+                            next_library = self._find_closest_library()
+                            
+                            # If still no valid library, go off campus
+                            if next_library is None:
+                                self.current_library_id = 'not_in_library'
+                                self.status = "off_campus"
+                                return
+                            
+                            self.target_library_id = next_library
+                        
+                        # Now check if library is overcrowded
                         if self.model.libraries[self.target_library_id].is_overcrowded():
                             # Library is full, add to attempted libraries
                             self.attempted_libraries.append(self.target_library_id)
@@ -129,7 +147,13 @@ class Student(mesa.Agent):
                             # Find another library to go to
                             next_library = self._find_closest_library()
                             
-                            current_library = self.target_library_id # Store the current target before updating it
+                            # If no valid library found, go off campus
+                            if next_library is None:
+                                self.current_library_id = 'not_in_library'
+                                self.status = "off_campus"
+                                return
+                            
+                            current_library = self.target_library_id # Store the current target
                             
                             # Set the new target and continue traveling
                             self.target_library_id = next_library
@@ -150,13 +174,27 @@ class Student(mesa.Agent):
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
                 
+                # Only set target_library_id to None once student has completed their journey
+                # and the new status has been set
                 self.target_library_id = None
-            return
+            
+            return    
         
         # Logic for students currently in a library
         if self.status == "in_library":
             if scheduled_activity == "lecture":
                 self.model.libraries[self.current_library_id].remove_student()
+                
+                # Safety check for preferred_library_id
+                if self.preferred_library_id is None or self.preferred_library_id not in self.model.libraries:
+                    if self.model.libraries:
+                        self.preferred_library_id = random.choice(list(self.model.libraries.keys()))
+                        print(f"Warning: Student {self.unique_id} had invalid preferred library. Reassigned to {self.preferred_library_id}")
+                    else:
+                        # No libraries available
+                        self.status = "off_campus"
+                        self.current_library_id = 'not_in_library'
+                        return
                 
                 # check if the student is already in their preferred library
                 if self.current_library_id == self.preferred_library_id:
@@ -185,6 +223,23 @@ class Student(mesa.Agent):
                 
         # Logic for students currently in a lecture
         elif self.status == "in_lecture":
+            # Safety check - ensure current_library_id is valid
+            if self.current_library_id is None or self.current_library_id not in self.model.libraries:
+                # Fix the inconsistent state
+                if self.preferred_library_id and self.preferred_library_id in self.model.libraries:
+                    self.current_library_id = self.preferred_library_id
+                    print(f"Warning: Student {self.unique_id} in lecture had invalid library. Reassigned to {self.current_library_id}")
+                elif self.model.libraries:
+                    self.current_library_id = random.choice(list(self.model.libraries.keys()))
+                    print(f"Warning: Student {self.unique_id} in lecture had invalid library. Reassigned to {self.current_library_id}")
+                else:
+                    # No libraries available at all, send student off campus
+                    self.status = "off_campus"
+                    self.current_library_id = 'not_in_library'
+                    print(f"Warning: No libraries available for Student {self.unique_id} in lecture. Sent off campus.")
+                    return
+                    
+            
             if scheduled_activity == "library":
                 # Lecture ended, student wants to study in the library
                 if self.model.libraries[self.current_library_id].is_overcrowded():
