@@ -9,11 +9,11 @@ import numpy as np
 
 # Faculty to library mapping - each faculty has one preferred library
 faculty_library_mapping = {
-    "Engineering": 1,
-    "Arts": 2,
-    "Science": 3,
-    "Medicine": 4,
-    "Business": 5
+    "Engineering": 6,
+    "Arts": [1,7],
+    "Science": [2,5],
+    "Medical": 4,
+    "Social_science_law": [1, 7]
 }
 
 # Statistical profiles for each faculty
@@ -42,15 +42,15 @@ faculty_characteristics = {
         "library_transition_probability": 0.75,
         "chronotype_distribution": {"mean": 0.5, "std_dev": 0.2}  # Evenly distributed
     },
-    "Medicine": {
-        "lectures_per_day": {"mean": 4.0, "std_dev": 0.9},  # More structured programs
+    "Medical": { # combines, medicine, vet science and dentistry
+        "lectures_per_day": {"mean": 6.0, "std_dev": 0.9},  # More structured programs
         "lecture_duration_hours": {"mean": 1.5, "std_dev": 0.5},
         "library_visit_probability": 0.8,
         "library_duration_hours": {"mean": 3.0, "std_dev": 1.2},
         "library_transition_probability": 0.85,  # More likely to have long study sessions
         "chronotype_distribution": {"mean": 0.7, "std_dev": 0.15}  # Medicine students tend to be morning people
     },
-    "Business": {
+    "Social_science_law": {
         "lectures_per_day": {"mean": 3.0, "std_dev": 0.7},
         "lecture_duration_hours": {"mean": 1.3, "std_dev": 0.4},
         "library_visit_probability": 0.6,
@@ -200,16 +200,27 @@ def generate_student_schedule(faculty, year, chronotype, start_hour=8, end_hour=
     
     return schedule
 
+def assign_preferred_library(faculty):
+    """Assigns a preferred library based on the faculty's mapping."""
+    preferred_libraries = faculty_library_mapping[faculty]
+    
+    # If there's only one preferred library, assign it directly
+    if isinstance(preferred_libraries, int):
+        return preferred_libraries
+    
+    # If there are multiple preferred libraries, randomly pick one
+    return random.choice(preferred_libraries)
+
 def generate_student_population(num_students, faculty_distribution=None, start_hour=8, end_hour=20):
     """Generate data for the specified number of students"""
     if faculty_distribution is None:
         # Default faculty distribution
         faculty_distribution = {
-            "Engineering": 0.25,
-            "Arts": 0.2,
-            "Science": 0.25,
-            "Medicine": 0.15,
-            "Business": 0.15
+            "Engineering": 0.134,
+            "Arts": 0.1843,
+            "Science": 0.1934, 
+            "Medical": 0.226,
+            "Social_science_law": 0.2623
         }
     
     faculties = list(faculty_distribution.keys())
@@ -224,7 +235,7 @@ def generate_student_population(num_students, faculty_distribution=None, start_h
         year = random.randint(1, 4)
         
         # 3. Set preferred library based on faculty
-        preferred_library_id = faculty_library_mapping[faculty]
+        preferred_library_id = assign_preferred_library(faculty)
         
         # 4. Generate chronotype (0 = night owl, 1 = morning person)
         chronotype_params = faculty_characteristics[faculty]["chronotype_distribution"]
