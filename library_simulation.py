@@ -30,6 +30,8 @@ class Student(mesa.Agent):
         self.faculty = None
         self.year = None
         self.preferred_library_id = None
+        self.acceptable_libraries = []
+        self.avoided_libraries = []
         self.schedule = {}  # Schedule with values: "library", "lecture", or None (off campus)
         
         # Load data if provided
@@ -37,10 +39,16 @@ class Student(mesa.Agent):
             self.faculty = student_data.get("faculty")
             self.year = student_data.get("year")
             self.preferred_library_id = student_data.get("preferred_library_id")
+            
+            # Get acceptable and avoided libraries based on faculty
+            if self.faculty in self.model.faculty_library_mapping:
+                self.acceptable_libraries = self.model.faculty_library_mapping[self.faculty].get("acceptable", [])
+                self.avoided_libraries = self.model.faculty_library_mapping[self.faculty].get("avoided", [])
+                
             self.schedule = student_data.get("schedule", {})
         else:
             print(f"Error: No student data provided for student {unique_id}")
-        
+            
         # Initialize location and status
         self.current_library_id = 'not_in_library'
         self.target_library_id = None
@@ -53,20 +61,47 @@ class Student(mesa.Agent):
         return self.schedule.get(current_hour)
     
     def _find_closest_library(self):
-        """Find the closest library by travel time that hasn't been attempted"""
-        # Check if preferred library exists
-        if self.preferred_library_id not in self.model.libraries:
-            # If preferred library doesn't exist, choose a random one
-            return random.choice(list(self.model.libraries.keys()))
-            
-        # First check if preferred library is the target
+        """Find the closest library by travel time that respects faculty preferences"""
+        # First check if preferred library is available
         if self.preferred_library_id not in self.attempted_libraries:
             return self.preferred_library_id
         
-        # Use Dijkstra's algorithm to find shortest paths by travel time
-        distances = {}  # Dictionary to store shortest distances
-        for library_id in self.model.libraries.keys():
-            if library_id != self.preferred_library_id:
+        # Get preferred libraries from faculty mapping
+        preferred_libraries = []
+        if self.faculty in self.model.faculty_library_mapping:
+            preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
+        
+        # Try other preferred libraries that haven't been attempted yet
+        available_preferred = [lib for lib in preferred_libraries 
+                             if lib in self.model.libraries 
+                             and lib not in self.attempted_libraries 
+                             and lib != self.preferred_library_id]
+        
+        if available_preferred:
+            # Find closest preferred library
+            preferred_distances = {}
+            for library_id in available_preferred:
+                try:
+                    dist = nx.shortest_path_length(
+                        self.model.graph, 
+                        self.preferred_library_id, 
+                        library_id, 
+                        weight='weight'
+                    )
+                    preferred_distances[library_id] = dist
+                except nx.NetworkXNoPath:
+                    pass
+            
+            if preferred_distances:
+                return min(preferred_distances, key=preferred_distances.get)
+        
+        # If no preferred libraries available, try acceptable libraries
+        acceptable_distances = {}
+        for library_id in self.acceptable_libraries:
+            if (library_id in self.model.libraries 
+                and library_id not in self.attempted_libraries 
+                and library_id != self.preferred_library_id
+                and library_id not in preferred_libraries):
                 try:
                     # Get shortest path length using travel time weights
                     dist = nx.shortest_path_length(
@@ -75,20 +110,39 @@ class Student(mesa.Agent):
                         library_id, 
                         weight='weight'
                     )
-                    distances[library_id] = dist
+                    acceptable_distances[library_id] = dist
                 except nx.NetworkXNoPath:
                     # No path exists between these libraries
                     pass
         
-        # Sort libraries by distance (travel time)
-        sorted_libraries = sorted(distances.keys(), key=lambda x: distances[x])
+        # If we have acceptable options, return the closest one
+        if acceptable_distances:
+            return min(acceptable_distances, key=acceptable_distances.get)
         
-        # Find the first library that hasn't been attempted yet
-        for library_id in sorted_libraries:
-            if library_id not in self.attempted_libraries:
-                return library_id
+        # If all acceptable libraries are full, only then consider avoided libraries
+        avoided_distances = {}
+        for library_id in self.model.libraries.keys():
+            if (library_id not in self.attempted_libraries and 
+                library_id != self.preferred_library_id and
+                library_id not in preferred_libraries and
+                library_id not in self.acceptable_libraries):
+                
+                try:
+                    dist = nx.shortest_path_length(
+                        self.model.graph, 
+                        self.preferred_library_id, 
+                        library_id, 
+                        weight='weight'
+                    )
+                    avoided_distances[library_id] = dist
+                except nx.NetworkXNoPath:
+                    pass
         
-        # If all libraries have been attempted, reset attempted list and return preferred
+        # If we have avoided options, return the closest one
+        if avoided_distances:
+            return min(avoided_distances, key=avoided_distances.get)
+        
+        # If all libraries have been attempted, reset attempted list and return to preferred
         self.attempted_libraries = []
         return self.preferred_library_id
     
@@ -323,7 +377,8 @@ class LibraryNetworkModel(mesa.Model):
                  library_times_file="library_times.csv",
                  start_hour=8,    # Start at 8am
                  end_hour=20,     # End at 8pm
-                 student_data=None):    
+                 student_data=None,
+                 faculty_library_mapping=None):    
         
         super().__init__()
         self.student_count = student_count
@@ -331,6 +386,9 @@ class LibraryNetworkModel(mesa.Model):
         self.hours_per_step = 0.25  # 15 minutes per step
         self.steps_per_day = int(24 / self.hours_per_step)
         self.day = 0
+        
+        # Use the provided mapping or a default empty one
+        self.faculty_library_mapping = faculty_library_mapping # or {}
         
         # Add operating hours
         self.start_hour = start_hour
@@ -526,7 +584,7 @@ class LibraryNetworkModel(mesa.Model):
 #---------------------------------------------------------------------------------------------------------------
 
 def run_library_simulation_with_frames(steps=48, student_count=10, update_interval=1, 
-                                      start_hour=8, end_hour=20, student_data=None):
+                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None):
     """
     Run the library simulation and create an animation with frames
     Update interval of 1 means create a frame for every step (15 minutes)
@@ -536,7 +594,8 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
         student_count=student_count,
         start_hour=start_hour,
         end_hour=end_hour,
-        student_data=student_data
+        student_data=student_data,
+        faculty_library_mapping=faculty_library_mapping
     )
     
     # Create a frame for each 15-minute interval

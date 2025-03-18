@@ -8,7 +8,7 @@ Created on Thu Mar  6 18:20:56 2025
 
 # Import the simulation module
 from library_simulation import run_library_simulation_with_frames
-from student_data import generate_student_population
+from student_data import generate_student_population, faculty_library_mapping
 
 # Define operating hours
 START_HOUR = 8    # 8am
@@ -31,7 +31,8 @@ model = run_library_simulation_with_frames(
     update_interval=1,  # Create a frame every 15 minutes (every step)
     start_hour=START_HOUR,
     end_hour=END_HOUR,
-    student_data=student_data
+    student_data=student_data,
+    faculty_library_mapping=faculty_library_mapping
 )
 
 # After simulation completes, analyze the data

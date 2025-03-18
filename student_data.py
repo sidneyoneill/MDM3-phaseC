@@ -7,13 +7,33 @@ Monte Carlo student schedule generator for library simulation
 import random
 import numpy as np
 
-# Faculty to library mapping - each faculty has one preferred library
+# Faculty to library mapping with preferred and avoided libraries
 faculty_library_mapping = {
-    "Engineering": 6,
-    "Arts": [1,7],
-    "Science": [2,5],
-    "Medical": 4,
-    "Social_science_law": [1, 7]
+    "Engineering": {
+        "preferred": [6],         # Queens building is preferred
+        "acceptable": [1, 8, 9, 11],  # These are acceptable alternatives
+        "avoided": [2, 3, 4, 5, 7, 10] # only go to these if the others are full
+    },
+    "Arts": {
+        "preferred": [1, 7],
+        "acceptable": [8, 9, 11],
+        "avoided": [2, 3, 4, 5, 6, 10]
+    },
+    "Science": {
+        "preferred": [2, 5],
+        "acceptable": [1, 7, 8, 9, 10, 11],
+        "avoided": [3, 4, 6]
+    },
+    "Medical": {
+        "preferred": [4],
+        "acceptable": [1, 7, 8, 9, 11],
+        "avoided": [2, 3, 5, 6, 10]
+    },
+    "Social_science_law": {
+        "preferred": [1, 7],
+        "acceptable": [8, 9, 10, 11],
+        "avoided": [2, 3, 4, 5, 6]
+    }
 }
 
 # Statistical profiles for each faculty
@@ -202,11 +222,11 @@ def generate_student_schedule(faculty, year, chronotype, start_hour=8, end_hour=
 
 def assign_preferred_library(faculty):
     """Assigns a preferred library based on the faculty's mapping."""
-    preferred_libraries = faculty_library_mapping[faculty]
+    preferred_libraries = faculty_library_mapping[faculty]["preferred"]
     
     # If there's only one preferred library, assign it directly
-    if isinstance(preferred_libraries, int):
-        return preferred_libraries
+    if len(preferred_libraries) == 1:
+        return preferred_libraries[0]
     
     # If there are multiple preferred libraries, randomly pick one
     return random.choice(preferred_libraries)
