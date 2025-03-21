@@ -274,18 +274,3 @@ def generate_student_population(num_students, faculty_distribution=None, start_h
         }
     
     return student_data
-"""
-# Example usage - only do when run this script directly (not imported in from other modules)
-if __name__ == "__main__":
-    # Generate schedules for 20 students
-    students = generate_student_population(20)
-    
-    # Print first student's schedule as an example
-    student = students[0]
-    print(f"Student 0: Faculty={student['faculty']}, Year={student['year']}, Chronotype={student['chronotype']:.2f}")
-    print(f"Preferred Library: {student['preferred_library_id']}")
-    print("Schedule:")
-    for hour in range(8, 20):
-        activity = student['schedule'].get(hour, None)
-        print(f"{hour}:00 - {activity if activity else 'off campus'}")
-"""

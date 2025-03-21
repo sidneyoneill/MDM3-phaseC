@@ -66,10 +66,11 @@ class Student(mesa.Agent):
         if self.preferred_library_id not in self.attempted_libraries:
             return self.preferred_library_id
         
+        # Determine the starting point for distance calculations
+        origin = self.current_library_id if self.current_library_id != 'not_in_library' else self.preferred_library_id
+        
         # Get preferred libraries from faculty mapping
-        preferred_libraries = []
-        if self.faculty in self.model.faculty_library_mapping:
-            preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
+        preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
         
         # Try other preferred libraries that haven't been attempted yet
         available_preferred = [lib for lib in preferred_libraries 
@@ -77,14 +78,14 @@ class Student(mesa.Agent):
                              and lib not in self.attempted_libraries 
                              and lib != self.preferred_library_id]
         
-        if available_preferred:
+        if available_preferred and origin != 'not_in_library':
             # Find closest preferred library
             preferred_distances = {}
             for library_id in available_preferred:
                 try:
                     dist = nx.shortest_path_length(
                         self.model.graph, 
-                        self.preferred_library_id, 
+                        origin, 
                         library_id, 
                         weight='weight'
                     )
@@ -94,6 +95,9 @@ class Student(mesa.Agent):
             
             if preferred_distances:
                 return min(preferred_distances, key=preferred_distances.get)
+        elif available_preferred: # should not come in here - if off campus, their attempted library list should be empty
+            # If student is off-campus, just choose a random preferred library
+            return random.choice(available_preferred)
         
         # If no preferred libraries available, try acceptable libraries
         acceptable_distances = {}
@@ -102,22 +106,31 @@ class Student(mesa.Agent):
                 and library_id not in self.attempted_libraries 
                 and library_id != self.preferred_library_id
                 and library_id not in preferred_libraries):
-                try:
-                    # Get shortest path length using travel time weights
-                    dist = nx.shortest_path_length(
-                        self.model.graph, 
-                        self.preferred_library_id, 
-                        library_id, 
-                        weight='weight'
-                    )
-                    acceptable_distances[library_id] = dist
-                except nx.NetworkXNoPath:
-                    # No path exists between these libraries
-                    pass
+                
+                if origin != 'not_in_library':
+                    try:
+                        # Get shortest path length using travel time weights
+                        dist = nx.shortest_path_length(
+                            self.model.graph, 
+                            origin, 
+                            library_id, 
+                            weight='weight'
+                        )
+                        acceptable_distances[library_id] = dist
+                    except nx.NetworkXNoPath:
+                        # No path exists between these libraries
+                        pass
+                else:
+                    # If student is off-campus, add library with a placeholder distance
+                    acceptable_distances[library_id] = 0
         
         # If we have acceptable options, return the closest one
         if acceptable_distances:
-            return min(acceptable_distances, key=acceptable_distances.get)
+            if origin != 'not_in_library':
+                return min(acceptable_distances, key=acceptable_distances.get)
+            else:
+                # If student is off-campus, just choose a random acceptable library
+                return random.choice(list(acceptable_distances.keys()))
         
         # If all acceptable libraries are full, only then consider avoided libraries
         avoided_distances = {}
@@ -127,20 +140,28 @@ class Student(mesa.Agent):
                 library_id not in preferred_libraries and
                 library_id not in self.acceptable_libraries):
                 
-                try:
-                    dist = nx.shortest_path_length(
-                        self.model.graph, 
-                        self.preferred_library_id, 
-                        library_id, 
-                        weight='weight'
-                    )
-                    avoided_distances[library_id] = dist
-                except nx.NetworkXNoPath:
-                    pass
+                if origin != 'not_in_library':
+                    try:
+                        dist = nx.shortest_path_length(
+                            self.model.graph, 
+                            origin, 
+                            library_id, 
+                            weight='weight'
+                        )
+                        avoided_distances[library_id] = dist
+                    except nx.NetworkXNoPath:
+                        pass
+                else:
+                    # If student is off-campus, add library with a placeholder distance
+                    avoided_distances[library_id] = 0
         
         # If we have avoided options, return the closest one
         if avoided_distances:
-            return min(avoided_distances, key=avoided_distances.get)
+            if origin != 'not_in_library':
+                return min(avoided_distances, key=avoided_distances.get)
+            else:
+                # If student is off-campus, just choose a random avoided library
+                return random.choice(list(avoided_distances.keys()))
         
         # If all libraries have been attempted, reset attempted list and return to preferred
         self.attempted_libraries = []
@@ -207,9 +228,9 @@ class Student(mesa.Agent):
                                 self.status = "off_campus"
                                 return
                             
-                            current_library = self.target_library_id # Store the current target
+                            current_library = self.target_library_id
                             
-                            # Set the new target and continue traveling
+                            # Set the new target and continue travelling
                             self.target_library_id = next_library
                             self.status = "traveling"
                             
@@ -228,8 +249,7 @@ class Student(mesa.Agent):
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
                 
-                # Only set target_library_id to None once student has completed their journey
-                # and the new status has been set
+                # Only set target_library_id to None once student has completed their journey and the new status has been set
                 self.target_library_id = None
             
             return    
@@ -277,23 +297,6 @@ class Student(mesa.Agent):
                 
         # Logic for students currently in a lecture
         elif self.status == "in_lecture":
-            # Safety check - ensure current_library_id is valid
-            if self.current_library_id is None or self.current_library_id not in self.model.libraries:
-                # Fix the inconsistent state
-                if self.preferred_library_id and self.preferred_library_id in self.model.libraries:
-                    self.current_library_id = self.preferred_library_id
-                    print(f"Warning: Student {self.unique_id} in lecture had invalid library. Reassigned to {self.current_library_id}")
-                elif self.model.libraries:
-                    self.current_library_id = random.choice(list(self.model.libraries.keys()))
-                    print(f"Warning: Student {self.unique_id} in lecture had invalid library. Reassigned to {self.current_library_id}")
-                else:
-                    # No libraries available at all, send student off campus
-                    self.status = "off_campus"
-                    self.current_library_id = 'not_in_library'
-                    print(f"Warning: No libraries available for Student {self.unique_id} in lecture. Sent off campus.")
-                    return
-                    
-            
             if scheduled_activity == "library":
                 # Lecture ended, student wants to study in the library
                 if self.model.libraries[self.current_library_id].is_overcrowded():
@@ -746,9 +749,5 @@ def run_library_simulation_with_frames(steps=48, student_count=10, update_interv
         ),
         frames=frames
     )
-    
-    # Show animation
     fig.show(renderer="browser")
-    
     return model
-

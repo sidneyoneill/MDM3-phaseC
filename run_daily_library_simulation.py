@@ -7,8 +7,8 @@ Created on Thu Mar  6 18:20:56 2025
 """
 
 # Import the simulation module
-from library_simulation import run_library_simulation_with_frames
-from student_data import generate_student_population, faculty_library_mapping
+from daily_library_simulation import run_library_simulation_with_frames
+from daily_student_data import generate_student_population, faculty_library_mapping
 
 # Define operating hours
 START_HOUR = 8    # 8am
