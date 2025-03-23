@@ -187,6 +187,7 @@ class Student(mesa.Agent):
                     self.current_library_id = 'not_in_library'
                     self.status = "off_campus"
                     self.attempted_libraries = []  # Reset attempted libraries list
+                    self.target_library_id = None
                 else:
                     # Student is arriving at a library
                     # Check if they're going to a lecture or to a library
@@ -195,10 +196,12 @@ class Student(mesa.Agent):
                         if self.target_library_id is not None and self.target_library_id in self.model.libraries:
                             self.current_library_id = self.target_library_id
                             self.status = "in_lecture"
+                            self.target_library_id = None
                         else:
                             # Invalid target, go off campus instead
                             self.current_library_id = 'not_in_library'
                             self.status = "off_campus"
+                            self.target_library_id = None
                     elif scheduled_activity == "library":
                         # Ensure target_library_id is valid
                         if self.target_library_id is None or self.target_library_id not in self.model.libraries:
@@ -248,10 +251,7 @@ class Student(mesa.Agent):
                             self.model.libraries[self.current_library_id].add_student()
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
-                
-                # Only set target_library_id to None once student has completed their journey and the new status has been set
-                self.target_library_id = None
-            
+                            self.target_library_id = None
             return    
         
         # Logic for students currently in a library
@@ -410,6 +410,7 @@ class LibraryNetworkModel(mesa.Model):
         # Create libraries (with specific capacities from the CSV)
         self.libraries = {}
         for _, row in self.df_locations.iterrows():
+            # Use the capacity from the CSV file instead of random values
             capacity = row['Capacity']  # Get capacity from the CSV
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
             
