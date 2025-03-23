@@ -7,7 +7,7 @@ Created on Thu Mar  6 18:20:56 2025
 """
 
 # Import the simulation module
-from daily_library_simulation import run_library_simulation_with_frames
+from student_tracking_simulation import run_library_simulation_with_frames
 from daily_student_data import generate_student_population, faculty_library_mapping
 
 # Define operating hours
@@ -16,6 +16,7 @@ END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 12  
 STUDENT_COUNT = 3000  
+TRACKED_STUDENT_ID = 0 # comment out if want no tracking
 
 # Generate Monte Carlo student data
 student_data = generate_student_population(
@@ -24,7 +25,6 @@ student_data = generate_student_population(
     end_hour=END_HOUR
 )
 
-# Use animation with playback controls and student data
 model = run_library_simulation_with_frames(
     steps=HOURS_TO_SIMULATE * STEPS_PER_HOUR,  # Steps for 12 hours (8am-8pm)
     student_count=STUDENT_COUNT,
@@ -32,7 +32,8 @@ model = run_library_simulation_with_frames(
     start_hour=START_HOUR,
     end_hour=END_HOUR,
     student_data=student_data,
-    faculty_library_mapping=faculty_library_mapping
+    faculty_library_mapping=faculty_library_mapping,
+    tracked_student_id = TRACKED_STUDENT_ID
 )
 
 # After simulation completes, analyze the data

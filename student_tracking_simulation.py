@@ -391,7 +391,7 @@ class LibraryNetworkModel(mesa.Model):
         self.day = 0
         
         # Use the provided mapping or a default empty one
-        self.faculty_library_mapping = faculty_library_mapping # or {}
+        self.faculty_library_mapping = faculty_library_mapping 
         
         # Add operating hours
         self.start_hour = start_hour
@@ -447,7 +447,7 @@ class LibraryNetworkModel(mesa.Model):
         for i in self.df_times.index:
             for j in self.df_times.columns:
                 if not np.isnan(self.df_times.loc[i, j]) and i != j:
-                    G.add_edge(int(i), int(j), weight=self.df_times.loc[i, j])          
+                    G.add_edge(int(i), int(j), weight=self.df_times.loc[i, j])            
         return G
     
     def get_hour(self):
@@ -495,7 +495,7 @@ class LibraryNetworkModel(mesa.Model):
         if self.current_step % self.steps_per_day == 0:
             self.day += 1
     
-    def get_network_visualization_data(self):
+    def get_network_visualization_data(self, tracked_student_id=0):
         """Get data for network visualization"""
         # Normalize lat/lon for visualization
         min_lon, min_lat = self.df_locations["Longitude"].min(), self.df_locations["Latitude"].min()
@@ -557,6 +557,112 @@ class LibraryNetworkModel(mesa.Model):
                 
             node_colors.append(color)
             
+        # Get info about the tracked student
+        tracked_student_info = {}
+        tracked_student_pos = None
+        
+        # Find the tracked student
+        for agent in self.schedule.agents:
+            if agent.unique_id == tracked_student_id:
+                # Get the current library name
+                current_library_name = "Not in a library"
+                if agent.current_library_id != 'not_in_library' and agent.current_library_id in self.libraries:
+                    current_library_name = self.libraries[agent.current_library_id].name
+                    
+                # Get the target library name
+                target_library_name = "None"
+                if agent.target_library_id and agent.target_library_id != 'not_in_library' and agent.target_library_id in self.libraries:
+                    target_library_name = self.libraries[agent.target_library_id].name
+                    
+                # Get the preferred library name
+                preferred_library_name = "None"
+                if agent.preferred_library_id and agent.preferred_library_id in self.libraries:
+                    preferred_library_name = self.libraries[agent.preferred_library_id].name
+                    
+                # Calculate the tracked student position - handle all statuses
+                if agent.status == "in_library" or agent.status == "in_lecture":
+                    # Student is in a library or lecture - position them at the library
+                    if agent.current_library_id in pos:
+                        tracked_student_pos = pos[agent.current_library_id]
+                elif agent.status == "traveling":
+                    if (agent.current_library_id != 'not_in_library' and 
+                        agent.target_library_id != 'not_in_library' and
+                        agent.current_library_id in pos and 
+                        agent.target_library_id in pos):
+                    
+                        # Student is traveling - need to calculate their position on the edge
+                        if agent.current_library_id != 'not_in_library' and agent.target_library_id != 'not_in_library':
+                            # Going between two libraries
+                            if agent.current_library_id in pos and agent.target_library_id in pos:
+                                start_pos = pos[agent.current_library_id]
+                                end_pos = pos[agent.target_library_id]
+                                
+                                # Get original travel time from graph (or calculate a default)
+                                if self.graph.has_edge(agent.current_library_id, agent.target_library_id):
+                                    total_travel_time = math.ceil(self.graph[agent.current_library_id][agent.target_library_id]['weight'] / 5)
+                                else:
+                                    # Default if no direct path
+                                    total_travel_time = 5
+                                
+                                # Calculate progress along path (0 to 1)
+                                if total_travel_time > 0:
+                                    progress = 1 - (agent.travel_time_remaining / total_travel_time)
+                                else:
+                                    progress = 0.5
+                                
+                                # Ensure progress is between 0 and 1
+                                progress = max(0, min(1, progress))
+                                
+                                # Interpolate position
+                                x = start_pos[0] + progress * (end_pos[0] - start_pos[0])
+                                y = start_pos[1] + progress * (end_pos[1] - start_pos[1])
+                                
+                                tracked_student_pos = (x, y)
+                                
+                    # Handle case where student just attempted a library but it was full
+                    elif agent.attempted_libraries and agent.target_library_id != 'not_in_library':
+                        # Student tried a library that was full and is now going to another one
+                        # Use the last attempted library as the starting point
+                        last_attempted = agent.attempted_libraries[-1]
+                        if last_attempted in pos and agent.target_library_id in pos:
+                            start_pos = pos[last_attempted]
+                            end_pos = pos[agent.target_library_id]
+                            
+                            # Calculate progress (similar to existing code)
+                            if agent.travel_time_remaining > 0:
+                                progress = 1 - (agent.travel_time_remaining / 5)  # Simplified for clarity
+                            else:
+                                progress = 0.5
+                                
+                            progress = max(0, min(1, progress))
+                            
+                            # Interpolate position
+                            x = start_pos[0] + progress * (end_pos[0] - start_pos[0])
+                            y = start_pos[1] + progress * (end_pos[1] - start_pos[1])
+                            
+                            tracked_student_pos = (x, y)        
+                            
+                    elif agent.current_library_id == 'not_in_library' and agent.target_library_id != 'not_in_library':
+                        # Coming from off-campus to a library - immediately place them at target library
+                        if agent.target_library_id in pos:
+                            tracked_student_pos = pos[agent.target_library_id]
+
+                    elif agent.current_library_id != 'not_in_library' and agent.target_library_id == 'not_in_library':
+                        # Going from a library to off-campus - not show the student at all - set tracked_student_pos to None
+                        tracked_student_pos = None
+                        
+                # Save student info
+                tracked_student_info = {
+                    'faculty': agent.faculty,
+                    'year': agent.year,
+                    'status': agent.status,
+                    'current_library': current_library_name,
+                    'target_library': target_library_name,
+                    'preferred_library': preferred_library_name,
+                    'schedule': agent.schedule,
+                    'attempted_libraries': agent.attempted_libraries,  # Add this to show libraries that were full
+                    'travel_time_remaining': agent.travel_time_remaining  # Add travel time for context
+                }
         # Get counts for different student states
         students_in_libraries = self.get_students_in_library()
         students_in_lecture = self.get_students_in_lecture()
@@ -566,33 +672,34 @@ class LibraryNetworkModel(mesa.Model):
         # Verify total matches
         total_students = students_in_libraries + students_in_lecture + students_traveling + students_off_campus
             
-        # Add this information to the title
-        current_hour = self.get_hour()
-        
         return {
-            'edge_x': edge_x,
-            'edge_y': edge_y,
-            'edge_labels': edge_labels,
-            'node_x': node_x,
-            'node_y': node_y,
-            'node_labels': node_labels,
-            'node_colors': node_colors,
-            'day': self.day,
-            'hour': current_hour,
-            'students_in_libraries': students_in_libraries,
-            'students_in_lecture': students_in_lecture,
-            'students_traveling': students_traveling, 
-            'students_off_campus': students_off_campus,
-            'total_students': total_students,
-            'min_y': min_y, 
-            'max_y': max_y,
-            'buffer': buffer
-        }
+        'edge_x': edge_x,
+        'edge_y': edge_y,
+        'edge_labels': edge_labels,
+        'node_x': node_x,
+        'node_y': node_y,
+        'node_labels': node_labels,
+        'node_colors': node_colors,
+        'day': self.day,
+        'hour': self.get_hour(),
+        'minute': self.get_minute(),
+        'students_in_libraries': students_in_libraries,
+        'students_in_lecture': students_in_lecture,
+        'students_traveling': students_traveling, 
+        'students_off_campus': students_off_campus,
+        'total_students': total_students,
+        'min_y': min_y, 
+        'max_y': max_y,
+        'buffer': buffer, 
+        'tracked_student': tracked_student_info,
+        'tracked_student_pos': tracked_student_pos
+    }
     
 #---------------------------------------------------------------------------------------------------------------
 
 def run_library_simulation_with_frames(steps=144, student_count=10, update_interval=3, 
-                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None):
+                                      start_hour=8, end_hour=20, student_data=None, 
+                                      faculty_library_mapping=None, tracked_student_id=0):
     """
     Run the library simulation and create an animation with frames
     Update interval of 1 means create a frame for every step (15 minutes)
@@ -624,60 +731,161 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
             current_minute = (step % 12) * 5
         
             # Get network data for this step
-            vis_data = model.get_network_visualization_data()
+            vis_data = model.get_network_visualization_data(tracked_student_id)
+            
+            tracked_student = vis_data.get('tracked_student', {})
+            if tracked_student:
+                current_hour_str = f"{current_hour}:{current_minute:02d}"
+                current_schedule = tracked_student.get('schedule', {}).get(current_hour, "Off campus")
+                
+                # Add attempted libraries and travel time info
+                attempted_libraries_text = ""
+                if tracked_student.get('status') == "traveling" and tracked_student.get('attempted_libraries'):
+                    # Convert library IDs to names for better readability
+                    attempted_library_names = []
+                    for lib_id in tracked_student.get('attempted_libraries', []):
+                        if lib_id in model.libraries:
+                            attempted_library_names.append(model.libraries[lib_id].name)
+                        else:
+                            attempted_library_names.append(str(lib_id))
+                    
+                    if attempted_library_names:
+                        attempted_libraries_text = f"Attempted Libraries: {', '.join(attempted_library_names)}<br>"
+                
+                # Add travel time info if traveling
+                travel_time_text = ""
+                if tracked_student.get('status') == "traveling" and 'travel_time_remaining' in tracked_student:
+                    travel_time_text = f"Travel Time Remaining: {tracked_student['travel_time_remaining']} steps<br>"
+                
+                student_info_text = (
+                    f"<b>Student #{tracked_student_id} Info:</b><br>"
+                    f"Faculty: {tracked_student.get('faculty', 'Unknown')}<br>"
+                    f"Year: {tracked_student.get('year', 'Unknown')}<br>"
+                    f"Status: {tracked_student.get('status', 'Unknown')}<br>"
+                    f"Current Location: {tracked_student.get('current_library', 'Unknown')}<br>"
+                    f"Target library: {tracked_student.get('target_library', 'Unknown')}<br>"
+                    f"Preferred Library: {tracked_student.get('preferred_library', 'Unknown')}<br>"
+                    f"{travel_time_text}"
+                    f"{attempted_libraries_text}<br>"
+                    f"<b>Current Schedule ({current_hour_str}):</b> {current_schedule}<br><br>"
+                    f"<b>Today's Schedule:</b><br>"
+                )
+                
+                # Add schedule timeline
+                for hour in range(start_hour, end_hour + 1):
+                    activity = tracked_student.get('schedule', {}).get(hour, "Off campus")
+                    time_str = f"{hour}:00"
+                    
+                    # Highlight current hour
+                    if hour == current_hour:
+                        student_info_text += f"<b>{time_str}: {activity}</b><br>"
+                    else:
+                        student_info_text += f"{time_str}: {activity}<br>"
+            else:
+                student_info_text = f"Student #{tracked_student_id} not found"
         
             # Create a frame for this step
-            frame = {
-                "name": f"step_{step//3}",
-                "data": [
-                    # Edges
+            frame_data = [
+                # Edges
+                {
+                    "type": "scatter",
+                    "x": vis_data['edge_x'],
+                    "y": vis_data['edge_y'],
+                    "mode": "lines",
+                    "line": {"width": 2, "color": "black"},
+                    "hoverinfo": "none"
+                },
+                # Edge labels
+                {
+                    "type": "scatter",
+                    "x": [label[0] for label in vis_data['edge_labels']],
+                    "y": [label[1] for label in vis_data['edge_labels']],
+                    "mode": "text",
+                    "text": [label[2] for label in vis_data['edge_labels']],
+                    "textposition": "top center",
+                    "hoverinfo": "none"
+                }
+            ]
+            
+            # Nodes (Libraries & Tracked Student)
+            node_x = vis_data['node_x'][:]  # Copy existing library x-coordinates
+            node_y = vis_data['node_y'][:]  # Copy existing library y-coordinates
+            node_labels = vis_data['node_labels'][:]  # Copy existing labels
+            node_colors = vis_data['node_colors'][:]  # Copy existing colors
+            
+            # Add tracked student position to the main nodes if they are on campus
+            tracked_student_pos = vis_data.get('tracked_student_pos', None)
+            
+            if tracked_student_pos:
+                node_x.append(tracked_student_pos[0])
+                node_y.append(tracked_student_pos[1])
+                node_colors.append("white")  # Make it stand out
+                
+            # Adjust markers for non-library nodes
+            node_marker_size = []
+            node_marker_symbol = []
+            for i, color in enumerate(node_colors):
+                if color == "white":  # Non-library node (tracked student or similar)
+                    node_marker_size.append(10)  # Smaller size for non-library node
+                    node_marker_symbol.append("star")  # Star symbol for non-library node
+                else:  # Library node
+                    node_marker_size.append(25)  # Larger size for library nodes
+                    node_marker_symbol.append("circle")  # Default circle for library node
+            
+            # Create the main node trace including libraries and the tracked student
+            frame_data.append({
+                "type": "scatter",
+                "x": node_x,
+                "y": node_y,
+                "mode": "markers+text",
+                "text": node_labels,
+                "textposition": "top center",
+                "marker": {
+                "size": node_marker_size,  # Set sizes according to the type of node
+                "color": node_colors,
+                "symbol": node_marker_symbol,  # Use different symbols
+                "line": {"width": 2, "color": "black"}
+            }
+            })
+
+            # Create layout with student info annotation
+            frame_layout = {
+                "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
+                          f"Students: {vis_data['students_in_libraries']} in Libraries, "
+                          f"{vis_data['students_in_lecture']} in Lectures, "
+                          f"{vis_data['students_traveling']} Traveling, "
+                          f"{vis_data['students_off_campus']} Off Campus "
+                          f"(Total: {vis_data['total_students']}/{student_count})"),
+                "annotations": [
                     {
-                        "type": "scatter",
-                        "x": vis_data['edge_x'],
-                        "y": vis_data['edge_y'],
-                        "mode": "lines",
-                        "line": {"width": 2, "color": "black"},
-                        "hoverinfo": "none"
-                    },
-                    # Edge labels
-                    {
-                        "type": "scatter",
-                        "x": [label[0] for label in vis_data['edge_labels']],
-                        "y": [label[1] for label in vis_data['edge_labels']],
-                        "mode": "text",
-                        "text": [label[2] for label in vis_data['edge_labels']],
-                        "textposition": "top center",
-                        "hoverinfo": "none"
-                    },
-                    # Nodes
-                    {
-                        "type": "scatter",
-                        "x": vis_data['node_x'],
-                        "y": vis_data['node_y'],
-                        "mode": "markers+text",
-                        "text": vis_data['node_labels'],
-                        "textposition": "top center",
-                        "marker": {
-                            "size": 25,
-                            "color": vis_data['node_colors'],
-                            "line": {"width": 2, "color": "black"}
-                        }
+                        "x": 1.1,
+                        "y": 0.5,
+                        "xref": "paper",
+                        "yref": "paper",
+                        "text": student_info_text,
+                        "showarrow": False,
+                        "align": "left",
+                        "bgcolor": "rgba(255, 255, 255, 0.8)",
+                        "bordercolor": "gray",
+                        "borderwidth": 1,
+                        "borderpad": 10,
+                        "font": {"size": 12}
                     }
                 ],
-                "layout": {
-                    "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
-                              f"Students: {vis_data['students_in_libraries']} in Libraries, "
-                              f"{vis_data['students_in_lecture']} in Lectures, "
-                              f"{vis_data['students_traveling']} Traveling, "
-                              f"{vis_data['students_off_campus']} Off Campus "
-                              f"(Total: {vis_data['total_students']}/{student_count})")
-                }
+                "margin": {"r": 300}  # Add right margin to make space for the annotation
             }
-        
+                
+            # Create the frame
+            frame = {
+                "name": f"step_{step//update_interval}",
+                "data": frame_data,
+                "layout": frame_layout
+            }
+                    
             # Add the frame
             frames.append(frame)
         
-        # Run the simulation for one step (15 minutes)
+        # Run the simulation for one step (5 minutes)
         if step < total_5min_intervals - 1:  # Don't step after the last frame
             model.step()
     
@@ -751,9 +959,11 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
                 }
             }],
             height=1000,
-            width=1500, 
+            width=1800,
+            margin={"r": 350},
             yaxis=dict(range=[vis_data['min_y'] - vis_data['buffer'], 
-                      vis_data['max_y'] + vis_data['buffer']])
+                      vis_data['max_y'] + vis_data['buffer']], scaleanchor="x", automargin=True),
+            xaxis=dict(domain=[0, 0.9])
         ),
         frames=frames
     )

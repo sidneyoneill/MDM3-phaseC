@@ -65,7 +65,7 @@ faculty_characteristics = {
     "Medical": { # combines, medicine, vet science and dentistry
         "lectures_per_day": {"mean": 6.0, "std_dev": 0.9},  # More structured programs
         "lecture_duration_hours": {"mean": 1.5, "std_dev": 0.5},
-        "library_visit_probability": 0.8,
+        "library_visit_probability": 0.2,
         "library_duration_hours": {"mean": 3.0, "std_dev": 1.2},
         "library_transition_probability": 0.85,  # More likely to have long study sessions
         "chronotype_distribution": {"mean": 0.7, "std_dev": 0.15}  # Medicine students tend to be morning people
