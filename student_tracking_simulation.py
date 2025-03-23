@@ -724,166 +724,164 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
         # Set the model's time to this step
         model.current_step = step
         
-        # only create visualisation frames every 15mins (every 3 steps)
-        if step % 3 ==0:
-            # Calculate current hour and minutes
-            current_hour = start_hour + (step // 12)
-            current_minute = (step % 12) * 5
+        # Calculate current hour and minutes
+        current_hour = start_hour + (step // 12)
+        current_minute = (step % 12) * 5
+    
+        # Get network data for this step
+        vis_data = model.get_network_visualization_data(tracked_student_id)
         
-            # Get network data for this step
-            vis_data = model.get_network_visualization_data(tracked_student_id)
+        tracked_student = vis_data.get('tracked_student', {})
+        if tracked_student:
+            current_hour_str = f"{current_hour}:{current_minute:02d}"
+            current_schedule = tracked_student.get('schedule', {}).get(current_hour, "Off campus")
             
-            tracked_student = vis_data.get('tracked_student', {})
-            if tracked_student:
-                current_hour_str = f"{current_hour}:{current_minute:02d}"
-                current_schedule = tracked_student.get('schedule', {}).get(current_hour, "Off campus")
-                
-                # Add attempted libraries and travel time info
-                attempted_libraries_text = ""
-                if tracked_student.get('status') == "traveling" and tracked_student.get('attempted_libraries'):
-                    # Convert library IDs to names for better readability
-                    attempted_library_names = []
-                    for lib_id in tracked_student.get('attempted_libraries', []):
-                        if lib_id in model.libraries:
-                            attempted_library_names.append(model.libraries[lib_id].name)
-                        else:
-                            attempted_library_names.append(str(lib_id))
-                    
-                    if attempted_library_names:
-                        attempted_libraries_text = f"Attempted Libraries: {', '.join(attempted_library_names)}<br>"
-                
-                # Add travel time info if traveling
-                travel_time_text = ""
-                if tracked_student.get('status') == "traveling" and 'travel_time_remaining' in tracked_student:
-                    travel_time_text = f"Travel Time Remaining: {tracked_student['travel_time_remaining']} steps<br>"
-                
-                student_info_text = (
-                    f"<b>Student #{tracked_student_id} Info:</b><br>"
-                    f"Faculty: {tracked_student.get('faculty', 'Unknown')}<br>"
-                    f"Year: {tracked_student.get('year', 'Unknown')}<br>"
-                    f"Status: {tracked_student.get('status', 'Unknown')}<br>"
-                    f"Current Location: {tracked_student.get('current_library', 'Unknown')}<br>"
-                    f"Target library: {tracked_student.get('target_library', 'Unknown')}<br>"
-                    f"Preferred Library: {tracked_student.get('preferred_library', 'Unknown')}<br>"
-                    f"{travel_time_text}"
-                    f"{attempted_libraries_text}<br>"
-                    f"<b>Current Schedule ({current_hour_str}):</b> {current_schedule}<br><br>"
-                    f"<b>Today's Schedule:</b><br>"
-                )
-                
-                # Add schedule timeline
-                for hour in range(start_hour, end_hour + 1):
-                    activity = tracked_student.get('schedule', {}).get(hour, "Off campus")
-                    time_str = f"{hour}:00"
-                    
-                    # Highlight current hour
-                    if hour == current_hour:
-                        student_info_text += f"<b>{time_str}: {activity}</b><br>"
+            # Add attempted libraries and travel time info
+            attempted_libraries_text = ""
+            if tracked_student.get('status') == "traveling" and tracked_student.get('attempted_libraries'):
+                # Convert library IDs to names for better readability
+                attempted_library_names = []
+                for lib_id in tracked_student.get('attempted_libraries', []):
+                    if lib_id in model.libraries:
+                        attempted_library_names.append(model.libraries[lib_id].name)
                     else:
-                        student_info_text += f"{time_str}: {activity}<br>"
-            else:
-                student_info_text = f"Student #{tracked_student_id} not found"
-        
-            # Create a frame for this step
-            frame_data = [
-                # Edges
-                {
-                    "type": "scatter",
-                    "x": vis_data['edge_x'],
-                    "y": vis_data['edge_y'],
-                    "mode": "lines",
-                    "line": {"width": 2, "color": "black"},
-                    "hoverinfo": "none"
-                },
-                # Edge labels
-                {
-                    "type": "scatter",
-                    "x": [label[0] for label in vis_data['edge_labels']],
-                    "y": [label[1] for label in vis_data['edge_labels']],
-                    "mode": "text",
-                    "text": [label[2] for label in vis_data['edge_labels']],
-                    "textposition": "top center",
-                    "hoverinfo": "none"
-                }
-            ]
-            
-            # Nodes (Libraries & Tracked Student)
-            node_x = vis_data['node_x'][:]  # Copy existing library x-coordinates
-            node_y = vis_data['node_y'][:]  # Copy existing library y-coordinates
-            node_labels = vis_data['node_labels'][:]  # Copy existing labels
-            node_colors = vis_data['node_colors'][:]  # Copy existing colors
-            
-            # Add tracked student position to the main nodes if they are on campus
-            tracked_student_pos = vis_data.get('tracked_student_pos', None)
-            
-            if tracked_student_pos:
-                node_x.append(tracked_student_pos[0])
-                node_y.append(tracked_student_pos[1])
-                node_colors.append("white")  # Make it stand out
+                        attempted_library_names.append(str(lib_id))
                 
-            # Adjust markers for non-library nodes
-            node_marker_size = []
-            node_marker_symbol = []
-            for i, color in enumerate(node_colors):
-                if color == "white":  # Non-library node (tracked student or similar)
-                    node_marker_size.append(10)  # Smaller size for non-library node
-                    node_marker_symbol.append("star")  # Star symbol for non-library node
-                else:  # Library node
-                    node_marker_size.append(25)  # Larger size for library nodes
-                    node_marker_symbol.append("circle")  # Default circle for library node
+                if attempted_library_names:
+                    attempted_libraries_text = f"Attempted Libraries: {', '.join(attempted_library_names)}<br>"
             
-            # Create the main node trace including libraries and the tracked student
-            frame_data.append({
+            # Add travel time info if traveling
+            travel_time_text = ""
+            if tracked_student.get('status') == "traveling" and 'travel_time_remaining' in tracked_student:
+                travel_time_text = f"Travel Time Remaining: {tracked_student['travel_time_remaining']} steps<br>"
+            
+            student_info_text = (
+                f"<b>Student #{tracked_student_id} Info:</b><br>"
+                f"Faculty: {tracked_student.get('faculty', 'Unknown')}<br>"
+                f"Year: {tracked_student.get('year', 'Unknown')}<br>"
+                f"Status: {tracked_student.get('status', 'Unknown')}<br>"
+                f"Current Location: {tracked_student.get('current_library', 'Unknown')}<br>"
+                f"Target library: {tracked_student.get('target_library', 'Unknown')}<br>"
+                f"Preferred Library: {tracked_student.get('preferred_library', 'Unknown')}<br>"
+                f"{travel_time_text}"
+                f"{attempted_libraries_text}<br>"
+                f"<b>Current Schedule ({current_hour_str}):</b> {current_schedule}<br><br>"
+                f"<b>Today's Schedule:</b><br>"
+            )
+            
+            # Add schedule timeline
+            for hour in range(start_hour, end_hour + 1):
+                activity = tracked_student.get('schedule', {}).get(hour, "Off campus")
+                time_str = f"{hour}:00"
+                
+                # Highlight current hour
+                if hour == current_hour:
+                    student_info_text += f"<b>{time_str}: {activity}</b><br>"
+                else:
+                    student_info_text += f"{time_str}: {activity}<br>"
+        else:
+            student_info_text = f"Student #{tracked_student_id} not found"
+    
+        # Create a frame for this step
+        frame_data = [
+            # Edges
+            {
                 "type": "scatter",
-                "x": node_x,
-                "y": node_y,
-                "mode": "markers+text",
-                "text": node_labels,
+                "x": vis_data['edge_x'],
+                "y": vis_data['edge_y'],
+                "mode": "lines",
+                "line": {"width": 2, "color": "black"},
+                "hoverinfo": "none"
+            },
+            # Edge labels
+            {
+                "type": "scatter",
+                "x": [label[0] for label in vis_data['edge_labels']],
+                "y": [label[1] for label in vis_data['edge_labels']],
+                "mode": "text",
+                "text": [label[2] for label in vis_data['edge_labels']],
                 "textposition": "top center",
-                "marker": {
-                "size": node_marker_size,  # Set sizes according to the type of node
-                "color": node_colors,
-                "symbol": node_marker_symbol,  # Use different symbols
-                "line": {"width": 2, "color": "black"}
+                "hoverinfo": "none"
             }
-            })
+        ]
+        
+        # Nodes (Libraries & Tracked Student)
+        node_x = vis_data['node_x'][:]  # Copy existing library x-coordinates
+        node_y = vis_data['node_y'][:]  # Copy existing library y-coordinates
+        node_labels = vis_data['node_labels'][:]  # Copy existing labels
+        node_colors = vis_data['node_colors'][:]  # Copy existing colors
+        
+        # Add tracked student position to the main nodes if they are on campus
+        tracked_student_pos = vis_data.get('tracked_student_pos', None)
+        
+        if tracked_student_pos:
+            node_x.append(tracked_student_pos[0])
+            node_y.append(tracked_student_pos[1])
+            node_colors.append("white")  # Make it stand out
+            
+        # Adjust markers for non-library nodes
+        node_marker_size = []
+        node_marker_symbol = []
+        for i, color in enumerate(node_colors):
+            if color == "white":  # Non-library node (tracked student or similar)
+                node_marker_size.append(10)  # Smaller size for non-library node
+                node_marker_symbol.append("star")  # Star symbol for non-library node
+            else:  # Library node
+                node_marker_size.append(25)  # Larger size for library nodes
+                node_marker_symbol.append("circle")  # Default circle for library node
+        
+        # Create the main node trace including libraries and the tracked student
+        frame_data.append({
+            "type": "scatter",
+            "x": node_x,
+            "y": node_y,
+            "mode": "markers+text",
+            "text": node_labels,
+            "textposition": "top center",
+            "marker": {
+            "size": node_marker_size,  # Set sizes according to the type of node
+            "color": node_colors,
+            "symbol": node_marker_symbol,  # Use different symbols
+            "line": {"width": 2, "color": "black"}
+        }
+        })
 
-            # Create layout with student info annotation
-            frame_layout = {
-                "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
-                          f"Students: {vis_data['students_in_libraries']} in Libraries, "
-                          f"{vis_data['students_in_lecture']} in Lectures, "
-                          f"{vis_data['students_traveling']} Traveling, "
-                          f"{vis_data['students_off_campus']} Off Campus "
-                          f"(Total: {vis_data['total_students']}/{student_count})"),
-                "annotations": [
-                    {
-                        "x": 1.1,
-                        "y": 0.5,
-                        "xref": "paper",
-                        "yref": "paper",
-                        "text": student_info_text,
-                        "showarrow": False,
-                        "align": "left",
-                        "bgcolor": "rgba(255, 255, 255, 0.8)",
-                        "bordercolor": "gray",
-                        "borderwidth": 1,
-                        "borderpad": 10,
-                        "font": {"size": 12}
-                    }
-                ],
-                "margin": {"r": 300}  # Add right margin to make space for the annotation
-            }
+        # Create layout with student info annotation
+        frame_layout = {
+            "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
+                      f"Students: {vis_data['students_in_libraries']} in Libraries, "
+                      f"{vis_data['students_in_lecture']} in Lectures, "
+                      f"{vis_data['students_traveling']} Traveling, "
+                      f"{vis_data['students_off_campus']} Off Campus "
+                      f"(Total: {vis_data['total_students']}/{student_count})"),
+            "annotations": [
+                {
+                    "x": 1.1,
+                    "y": 0.5,
+                    "xref": "paper",
+                    "yref": "paper",
+                    "text": student_info_text,
+                    "showarrow": False,
+                    "align": "left",
+                    "bgcolor": "rgba(255, 255, 255, 0.8)",
+                    "bordercolor": "gray",
+                    "borderwidth": 1,
+                    "borderpad": 10,
+                    "font": {"size": 12}
+                }
+            ],
+            "margin": {"r": 300}  # Add right margin to make space for the annotation
+        }
+            
+        # Create the frame
+        frame = {
+            "name": f"step_{step//update_interval}",
+            "data": frame_data,
+            "layout": frame_layout
+        }
                 
-            # Create the frame
-            frame = {
-                "name": f"step_{step//update_interval}",
-                "data": frame_data,
-                "layout": frame_layout
-            }
-                    
-            # Add the frame
-            frames.append(frame)
+        # Add the frame
+        frames.append(frame)
         
         # Run the simulation for one step (5 minutes)
         if step < total_5min_intervals - 1:  # Don't step after the last frame
@@ -892,16 +890,20 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
     # Create slider steps for all 15-minute intervals
     slider_steps = []
     
-    total_15min_intervals = ((end_hour - start_hour) * 4) + 1
-    for step in range(total_15min_intervals):
-        current_hour = start_hour + (step // 4)
-        current_minute = (step % 4) * 15
+    total_5min_intervals = ((end_hour - start_hour) * 12) + 1
+    for step in range(total_5min_intervals):
+        current_hour = start_hour + (step // 12)
+        current_minute = (step % 12) * 5
         
-        # Only add hour marks as labeled steps
+        # Create appropriately formatted labels
         if current_minute == 0:
+            # Full hour marks
             label = f"{current_hour}:00"
+        elif current_minute % 15 == 0:
+            # 15-min marks get abbreviated time
+            label = f"{current_minute}"
         else:
-            # For 15-min intervals, use a small mark "|" instead of a label
+            # 5-min marks just get a tick
             label = "|"
             
         slider_steps.append({

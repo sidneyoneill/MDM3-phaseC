@@ -6,7 +6,6 @@ Created on Thu Mar  6 18:20:56 2025
 @author: lewisvaughan
 """
 
-# Import the simulation module
 from student_tracking_simulation import run_library_simulation_with_frames
 from daily_student_data import generate_student_population, faculty_library_mapping
 
@@ -28,7 +27,7 @@ student_data = generate_student_population(
 model = run_library_simulation_with_frames(
     steps=HOURS_TO_SIMULATE * STEPS_PER_HOUR,  # Steps for 12 hours (8am-8pm)
     student_count=STUDENT_COUNT,
-    update_interval=3,  # Create a frame every 15 minutes (every 3 steps)
+    update_interval=1,  # 1 so show simulation every 5 minutes
     start_hour=START_HOUR,
     end_hour=END_HOUR,
     student_data=student_data,
