@@ -241,10 +241,10 @@ class Student(mesa.Agent):
                             if self.model.graph.has_edge(current_library, next_library):
                                 travel_time_minutes = self.model.graph[current_library][next_library]['weight']
                                 travel_time_steps = math.ceil(travel_time_minutes / 5)
-                                self.travel_time_remaining = travel_time_steps
+                                self.travel_time_remaining = travel_time_steps -1 
                             else:
                                 # No direct path, set default travel time
-                                self.travel_time_remaining = random.randint(6, 15)  # 30-75 min
+                                self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
                         else:
                             # Library has space, enter it
                             self.current_library_id = self.target_library_id
@@ -285,7 +285,7 @@ class Student(mesa.Agent):
                         self.travel_time_remaining = math.ceil(travel_time_minutes / 5)
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                        self.travel_time_remaining = random.randint(1, 4)  # 5-20 mins
                     
             elif scheduled_activity != "library":
                 # Student needs to leave library (not in their schedule)
@@ -313,7 +313,7 @@ class Student(mesa.Agent):
                         self.travel_time_remaining = travel_time_steps
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                        self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
@@ -605,7 +605,7 @@ class LibraryNetworkModel(mesa.Model):
                                     total_travel_time = 5
                                 
                                 # Calculate progress along path (0 to 1)
-                                if total_travel_time > 0:
+                                if total_travel_time >= 0:
                                     progress = 1 - (agent.travel_time_remaining / total_travel_time)
                                 else:
                                     progress = 0.5
@@ -629,7 +629,7 @@ class LibraryNetworkModel(mesa.Model):
                             end_pos = pos[agent.target_library_id]
                             
                             # Calculate progress (similar to existing code)
-                            if agent.travel_time_remaining > 0:
+                            if agent.travel_time_remaining >= 0:
                                 progress = 1 - (agent.travel_time_remaining / 5)  # Simplified for clarity
                             else:
                                 progress = 0.5

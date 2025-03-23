@@ -240,11 +240,11 @@ class Student(mesa.Agent):
                             # Set travel time based on graph
                             if self.model.graph.has_edge(current_library, next_library):
                                 travel_time_minutes = self.model.graph[current_library][next_library]['weight']
-                                travel_time_steps = math.ceil(travel_time_minutes / 15)
-                                self.travel_time_remaining = travel_time_steps
+                                travel_time_steps = math.ceil(travel_time_minutes / 15) 
+                                self.travel_time_remaining = travel_time_steps -1 
                             else:
                                 # No direct path, set default travel time
-                                self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                                self.travel_time_remaining = 1  # 15 min 
                         else:
                             # Library has space, enter it
                             self.current_library_id = self.target_library_id
@@ -285,7 +285,7 @@ class Student(mesa.Agent):
                         self.travel_time_remaining = math.ceil(travel_time_minutes / 15)
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                        self.travel_time_remaining = 1 # 15 min
                     
             elif scheduled_activity != "library":
                 # Student needs to leave library (not in their schedule)
@@ -313,7 +313,7 @@ class Student(mesa.Agent):
                         self.travel_time_remaining = travel_time_steps
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(2, 5)  # 30-75 min
+                        self.travel_time_remaining = 1  # 15 min
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
