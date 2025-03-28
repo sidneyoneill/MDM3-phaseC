@@ -332,15 +332,14 @@ class Student(mesa.Agent):
                 self.target_library_id = self.preferred_library_id
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
             elif scheduled_activity == "library":
                 # Student needs to go to a library - choose the preferred one first
                 target_library = self._find_closest_library()
                 self.target_library_id = target_library
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
-
+                self.travel_time_remaining = 1
 #---------------------------------------------------------------------------------------------------------------
 
 class Library(object):
@@ -487,10 +486,8 @@ class LibraryNetworkModel(mesa.Model):
         """Advance the model by one step (15-minute interval)."""
         self.schedule.step() # Call RandomActivation, which randomly iterates through all the student agents and calls student.step() for each one
         self.current_step += 1
-    
-        # Collect data on every step (15 minutes)
         self.datacollector.collect(self)
-        
+    
         # Still track day changes
         if self.current_step % self.steps_per_day == 0:
             self.day += 1
@@ -641,10 +638,10 @@ class LibraryNetworkModel(mesa.Model):
                             y = start_pos[1] + progress * (end_pos[1] - start_pos[1])
                             
                             tracked_student_pos = (x, y)        
-                            
+                             
                     elif agent.current_library_id == 'not_in_library' and agent.target_library_id != 'not_in_library':
-                        # Coming from off-campus to a library - immediately place them at target library
-                        if agent.target_library_id in pos:
+                        # Coming from off-campus to a library - only place at target library if travel is complete
+                        if agent.target_library_id in pos and agent.travel_time_remaining <= 0:
                             tracked_student_pos = pos[agent.target_library_id]
 
                     elif agent.current_library_id != 'not_in_library' and agent.target_library_id == 'not_in_library':
@@ -697,7 +694,7 @@ class LibraryNetworkModel(mesa.Model):
     
 #---------------------------------------------------------------------------------------------------------------
 
-def run_library_simulation_with_frames(steps=144, student_count=10, update_interval=3, 
+def run_library_simulation_with_frames(steps=144, student_count=10, update_interval=1, 
                                       start_hour=8, end_hour=20, student_data=None, 
                                       faculty_library_mapping=None, tracked_student_id=0):
     """
@@ -721,15 +718,15 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
     
     # Run simulation for each 5-minute interval
     for step in range(total_5min_intervals):
-        # Set the model's time to this step
         model.current_step = step
+        model.step()
+    
+        # Get network data for this step AFTER stepping
+        vis_data = model.get_network_visualization_data(tracked_student_id)
         
         # Calculate current hour and minutes
         current_hour = start_hour + (step // 12)
         current_minute = (step % 12) * 5
-    
-        # Get network data for this step
-        vis_data = model.get_network_visualization_data(tracked_student_id)
         
         tracked_student = vis_data.get('tracked_student', {})
         if tracked_student:
@@ -749,7 +746,7 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
                 
                 if attempted_library_names:
                     attempted_libraries_text = f"Attempted Libraries: {', '.join(attempted_library_names)}<br>"
-            
+    
             # Add travel time info if traveling
             travel_time_text = ""
             if tracked_student.get('status') == "traveling" and 'travel_time_remaining' in tracked_student:
@@ -768,7 +765,7 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
                 f"<b>Current Schedule ({current_hour_str}):</b> {current_schedule}<br><br>"
                 f"<b>Today's Schedule:</b><br>"
             )
-            
+        
             # Add schedule timeline
             for hour in range(start_hour, end_hour + 1):
                 activity = tracked_student.get('schedule', {}).get(hour, "Off campus")
@@ -883,14 +880,9 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
         # Add the frame
         frames.append(frame)
         
-        # Run the simulation for one step (5 minutes)
-        if step < total_5min_intervals - 1:  # Don't step after the last frame
-            model.step()
-    
     # Create slider steps for all 15-minute intervals
     slider_steps = []
-    
-    total_5min_intervals = ((end_hour - start_hour) * 12) + 1
+          
     for step in range(total_5min_intervals):
         current_hour = start_hour + (step // 12)
         current_minute = (step % 12) * 5
@@ -914,8 +906,8 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
             "label": label,
             "method": "animate"
         })
-    
-    # Create the initial figure using the first frame
+        
+    # Create the first frame as the initial data
     initial_frame = frames[0] if frames else {"data": [], "layout": {"title": "No data"}}
     
     # Create figure with animation
@@ -971,3 +963,4 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
     )
     fig.show(renderer="browser")
     return model
+
