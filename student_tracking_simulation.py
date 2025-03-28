@@ -362,7 +362,15 @@ class Library(object):
             print(f"Warning: Attempted to remove student from {self.name} but occupancy is already 0!")
             
     def is_overcrowded(self):
-        return self.occupancy >= self.capacity * 0.9  # 90% of capacity is "overcrowded"
+        # Always consider fully occupied libraries as overcrowded
+        if self.occupancy >= self.capacity:
+            return True
+        # For libraries between 90% and 100% capacity, there's a probabilistic chance
+        elif self.occupancy >= self.capacity * 0.9:
+            # 10% chance of allowing the student (90% chance of returning True)
+            return random.random() > 0.1
+        # Libraries below 90% capacity are not overcrowded
+        return False
         
     def get_occupancy_percentage(self):
         return (self.occupancy / self.capacity) * 100 if self.capacity > 0 else 0
