@@ -332,14 +332,14 @@ class Student(mesa.Agent):
                 self.target_library_id = self.preferred_library_id
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
             elif scheduled_activity == "library":
                 # Student needs to go to a library - choose the preferred one first
                 target_library = self._find_closest_library()
                 self.target_library_id = target_library
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -648,8 +648,8 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         current_hour = start_hour + ((step % intervals_per_day) // 4)
         current_minute = (step % 4) * 15
         
-        # Set the model's current step
         model.current_step = step
+        model.step()
         
         # Get network data for this step
         vis_data = model.get_network_visualization_data()
@@ -705,10 +705,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         # Add the frame
         frames.append(frame)
         
-        # Run the simulation for one step (15 minutes)
-        if step < total_intervals - 1:  # Don't step after the last frame
-            model.step()
-    
     # Create slider steps with clearer day/time labels
     slider_steps = []
     
