@@ -15,23 +15,23 @@ faculty_library_mapping = {
         "avoided": [2, 3, 4, 5, 7, 10] # only go to these if the others are full
     },
     "Arts": {
-        "preferred": [1, 7],
-        "acceptable": [8, 9, 11],
+        "preferred": [1, 7, 11],
+        "acceptable": [8, 9],
         "avoided": [2, 3, 4, 5, 6, 10]
     },
     "Science": {
-        "preferred": [2, 5],
-        "acceptable": [1, 7, 8, 9, 10, 11],
+        "preferred": [1, 2, 5, 8, 11],
+        "acceptable": [7, 9, 10],
         "avoided": [3, 4, 6]
     },
     "Medical": {
-        "preferred": [4],
-        "acceptable": [1, 7, 8, 9, 11],
+        "preferred": [4, 8, 11],
+        "acceptable": [1, 7, 9],
         "avoided": [2, 3, 5, 6, 10]
     },
     "Social_science_law": {
-        "preferred": [1, 7],
-        "acceptable": [8, 9, 10, 11],
+        "preferred": [1, 7, 8],
+        "acceptable": [9, 10, 11],
         "avoided": [2, 3, 4, 5, 6]
     }
 }
@@ -39,44 +39,44 @@ faculty_library_mapping = {
 # Statistical profiles for each faculty
 faculty_characteristics = {
     "Engineering": {
-        "lectures_per_day": {"mean": 3.5, "std_dev": 0.8},  # Normal distribution
+        "lectures_per_day": {"mean": 3.0, "std_dev": 0.8},  # Normal distribution
         "lecture_duration_hours": {"mean": 1.5, "std_dev": 0.5},
         "library_visit_probability": 0.75,  # Probability of visiting library when free
         "library_duration_hours": {"mean": 2.5, "std_dev": 1.0},  # How long they stay
         "library_transition_probability": 0.8,  # Probability to stay in library next hour
-        "chronotype_distribution": {"mean": 0.55, "std_dev": 0.2}  # Engineers tend to be morning people
+        "chronotype_distribution": {"mean": 0.4, "std_dev": 0.2}  # Engineers tend to be morning people
     },
     "Arts": {
-        "lectures_per_day": {"mean": 2.5, "std_dev": 0.7},
+        "lectures_per_day": {"mean": 2, "std_dev": 0.7},
         "lecture_duration_hours": {"mean": 1.0, "std_dev": 0.3},
-        "library_visit_probability": 0.65,
+        "library_visit_probability": 0.8,
         "library_duration_hours": {"mean": 2.0, "std_dev": 0.8},
         "library_transition_probability": 0.7,
-        "chronotype_distribution": {"mean": 0.4, "std_dev": 0.25}  # Arts students tend to be night owls
+        "chronotype_distribution": {"mean": 0.65, "std_dev": 0.25}  # Arts students tend to be night owls
     },
     "Science": {
-        "lectures_per_day": {"mean": 3.0, "std_dev": 0.6},
-        "lecture_duration_hours": {"mean": 1.2, "std_dev": 0.4},
-        "library_visit_probability": 0.7,
-        "library_duration_hours": {"mean": 2.8, "std_dev": 1.0},
+        "lectures_per_day": {"mean": 4.0, "std_dev": 0.6},
+        "lecture_duration_hours": {"mean": 1.5, "std_dev": 0.4},
+        "library_visit_probability": 0.4,
+        "library_duration_hours": {"mean": 1.5, "std_dev": 0.5},
         "library_transition_probability": 0.75,
         "chronotype_distribution": {"mean": 0.5, "std_dev": 0.2}  # Evenly distributed
     },
     "Medical": { # combines, medicine, vet science and dentistry
         "lectures_per_day": {"mean": 6.0, "std_dev": 0.9},  # More structured programs
         "lecture_duration_hours": {"mean": 1.5, "std_dev": 0.5},
-        "library_visit_probability": 0.8,
-        "library_duration_hours": {"mean": 3.0, "std_dev": 1.2},
+        "library_visit_probability": 0.1,
+        "library_duration_hours": {"mean": 1.0, "std_dev": 0.5},
         "library_transition_probability": 0.85,  # More likely to have long study sessions
-        "chronotype_distribution": {"mean": 0.7, "std_dev": 0.15}  # Medicine students tend to be morning people
+        "chronotype_distribution": {"mean": 0.8, "std_dev": 0.15}  # Medicine students tend to be morning people
     },
     "Social_science_law": {
         "lectures_per_day": {"mean": 3.0, "std_dev": 0.7},
-        "lecture_duration_hours": {"mean": 1.3, "std_dev": 0.4},
-        "library_visit_probability": 0.6,
+        "lecture_duration_hours": {"mean": 1.0, "std_dev": 0.4},
+        "library_visit_probability": 0.8,
         "library_duration_hours": {"mean": 2.0, "std_dev": 0.9},
         "library_transition_probability": 0.7,
-        "chronotype_distribution": {"mean": 0.5, "std_dev": 0.2}  # Evenly distributed
+        "chronotype_distribution": {"mean": 0.45, "std_dev": 0.2}  # Evenly distributed
     }
 }
 
@@ -87,21 +87,21 @@ def adjust_by_year(characteristics, year):
     if year == 1:
         # First years have more structured time, more lectures, less library use
         adjusted["lectures_per_day"]["mean"] += 0.8
-        adjusted["library_visit_probability"] -= 0.1
-        adjusted["library_duration_hours"]["mean"] -= 0.5
+        adjusted["library_visit_probability"] -= 0.3
+        adjusted["library_duration_hours"]["mean"] -= 1.0
     elif year == 2:
         # Second years - small adjustment
-        adjusted["lectures_per_day"]["mean"] += 0.3
+        adjusted["lectures_per_day"]["mean"] += 0.0
     elif year == 3:
         # Third years - more independent study
         adjusted["lectures_per_day"]["mean"] -= 0.3
-        adjusted["library_visit_probability"] += 0.05
-        adjusted["library_duration_hours"]["mean"] += 0.3
+        adjusted["library_visit_probability"] += 0.15
+        adjusted["library_duration_hours"]["mean"] += 0.75
     elif year == 4:
         # Fourth years - much more independent study, fewer lectures
         adjusted["lectures_per_day"]["mean"] -= 0.8
-        adjusted["library_visit_probability"] += 0.15
-        adjusted["library_duration_hours"]["mean"] += 0.7
+        adjusted["library_visit_probability"] += 0.2
+        adjusted["library_duration_hours"]["mean"] += 0.75
         
     return adjusted
 

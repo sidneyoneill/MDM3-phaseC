@@ -15,7 +15,7 @@ START_HOUR = 8    # 8am
 END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 4  # 15-minute steps
-STUDENT_COUNT = 3000  # Now simulating 100 students
+STUDENT_COUNT = 4000  # Now simulating 100 students
 NUM_DAYS = 5
 
 # Generate Monte Carlo student data
@@ -41,5 +41,5 @@ results = model.datacollector.get_model_vars_dataframe()
 print(results.tail())
 
 # Save the results to CSV for further analysis
-# results.to_csv("library_simulation_results.csv")
+results.to_csv("weekly_library_simulation_results.csv")
 

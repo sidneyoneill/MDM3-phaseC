@@ -569,15 +569,20 @@ class LibraryNetworkModel(mesa.Model):
             library = self.libraries[node]
             lecture_count = lecture_counts.get(node, 0)
             
-            # Include lecture count in node label
-            node_labels.append(f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}")
+            # Only add lecture count for Queens library (node ID 6)
+            if node == 6:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}"
+            else:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}"
             
+            node_labels.append(node_label)
+     
             occupancy_pct = library.get_occupancy_percentage()
             
             # Color node based on occupancy percentage
             if occupancy_pct < 50:
                 color = 'green'  # Low occupancy
-            elif occupancy_pct < 90:
+            elif occupancy_pct < 80:
                 color = 'orange'  # Medium occupancy
             else:
                 color = 'red'  # High occupancy
