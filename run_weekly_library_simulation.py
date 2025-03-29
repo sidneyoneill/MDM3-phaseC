@@ -25,6 +25,9 @@ student_data = generate_student_population(
     end_hour=END_HOUR
 )
 
+# Import the metrics functions
+from weekly_library_metrics import calculate_library_metrics, print_library_metrics, analyze_library_simulation
+
 # Use animation with playback controls and student data
 model = run_library_simulation_with_frames(
     days=5,  # 5 days, 8am-8pm each day
@@ -35,6 +38,10 @@ model = run_library_simulation_with_frames(
     student_data=student_data,
     faculty_library_mapping=faculty_library_mapping
 )
+
+# Run the metrics analysis
+analyze_library_simulation(model, days=5)
+
 
 # After simulation completes, analyze the data
 results = model.datacollector.get_model_vars_dataframe()
