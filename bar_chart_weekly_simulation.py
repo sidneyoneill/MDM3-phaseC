@@ -69,7 +69,7 @@ def create_library_occupancy_animation(occupancy_df):
                     x=[library], 
                     y=[occupancy_df.iloc[i][library]], 
                     text=[f"{occupancy_df.iloc[i][library]:.1f}%"],
-                    textposition='outside',
+                    textposition='auto',
                     marker_color=colors[j % len(colors)]
                 )
             )
@@ -88,7 +88,7 @@ def create_library_occupancy_animation(occupancy_df):
                 x=[library], 
                 y=[occupancy_df.iloc[0][library]], 
                 text=[f"{occupancy_df.iloc[0][library]:.1f}%"],
-                textposition='outside',
+                textposition='auto',
                 marker_color=colors[j % len(colors)]
             )
         )
@@ -135,7 +135,9 @@ def create_library_occupancy_animation(occupancy_df):
         width=1200, 
         title_x=0.5,
         xaxis_title='Libraries',
-        yaxis_title='Occupancy (%)'
+        yaxis_title='Occupancy (%)',
+        yaxis=dict(range=[0, 110]),  # Give 10% extra space at the top
+        margin=dict(t=100)  # Add more top margin
     )
     
     return fig
