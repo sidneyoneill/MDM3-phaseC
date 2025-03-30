@@ -61,35 +61,28 @@ def calculate_library_metrics(model, simulation_days=5):
     squared_deviations = sum(dev**2 for dev in deviation_from_mean.values())
     std_deviation = math.sqrt(squared_deviations / len(deviation_from_mean)) if deviation_from_mean else 0
     
-    # 5 & 6. Count failed entries and calculate rejection probabilities
-    # We'll need to analyze the student agent behavior throughout the simulation
-    failed_entries = {lib_name: 0 for lib_name in library_names}
-    entry_attempts = {lib_name: 0 for lib_name in library_names}
+  # 5 & 6. Count failed entries and calculate rejection probabilities
+    # We need to modify this part to use model-wide tracking instead of agent.attempted_libraries
     
-    # Count rejections in student attempted_libraries lists
-    for agent in model.schedule.agents:
-        if hasattr(agent, 'attempted_libraries'):
-            for lib_id in agent.attempted_libraries:
-                if lib_id in libraries:
-                    lib_name = libraries[lib_id].name
-                    failed_entries[lib_name] = failed_entries.get(lib_name, 0) + 1
-                    entry_attempts[lib_name] = entry_attempts.get(lib_name, 0) + 1
+    # If the model doesn't have these attributes, we need to add them
+    if not hasattr(model, 'library_rejection_counts'):
+        # This means metrics were calculated without tracking rejections during simulation
+        print("Warning: No rejection tracking found in model. Metrics 5-6 will not be accurate.")
+        failed_entries = {lib_name: 0 for lib_name in library_names}
+        entry_attempts = {lib_name: 0 for lib_name in library_names}
+    else:
+        # Use the tracked data from the model
+        failed_entries = model.library_rejection_counts
+        entry_attempts = model.library_entry_attempts
     
-    # Add successful entries to entry_attempts
-    for lib_name, occupancies in library_occupancies.items():
-        lib_id = library_id_map.get(lib_name)
-        if lib_id is not None:
-            # Sum of all non-zero occupancy changes represents successful entries
-            successful_entries = sum(1 for i in range(1, len(occupancies)) 
-                                  if occupancies[i] > occupancies[i-1])
-            entry_attempts[lib_name] += successful_entries
-    
-    # Calculate rejection probabilities
+    # 6. Calculate rejection probabilities
     rejection_probability = {}
     for lib_name in library_names:
-        attempts = entry_attempts.get(lib_name, 0)
-        rejections = failed_entries.get(lib_name, 0)
-        rejection_probability[lib_name] = (rejections / attempts * 100) if attempts > 0 else 0
+        lib_id = library_id_map.get(lib_name)
+        if lib_id is not None:
+            attempts = entry_attempts.get(lib_id, 0)
+            rejections = failed_entries.get(lib_id, 0)
+            rejection_probability[lib_name] = (rejections / attempts * 100) if attempts > 0 else 0
     
     # 5. Failed library entries percentage (total)
     total_attempts = sum(entry_attempts.values())
