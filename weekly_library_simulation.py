@@ -225,11 +225,11 @@ class Student(mesa.Agent):
                             
                             self.target_library_id = next_library
                         
-                        # When a student attempts to enter a library but it's overcrowded
+                        # Now check if library is overcrowded
                         if self.model.libraries[self.target_library_id].is_overcrowded():
                             # Library is full, add to attempted libraries
                             self.attempted_libraries.append(self.target_library_id)
-    
+                            
                             # Track this rejection for metrics
                             self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
                             self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
@@ -266,7 +266,6 @@ class Student(mesa.Agent):
                             self.current_library_id = self.target_library_id
                             self.current_physical_location = self.target_library_id
                             self.model.libraries[self.current_library_id].add_student()
-                            # Track successful entry for metrics
                             self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
@@ -324,7 +323,7 @@ class Student(mesa.Agent):
                     self.attempted_libraries.append(self.current_library_id)
                     # Track this rejection for metrics
                     self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
-                    self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1                    
+                    self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1 
                     next_library = self._find_closest_library()
                     self.target_library_id = next_library
                     self.status = "traveling"
@@ -340,7 +339,6 @@ class Student(mesa.Agent):
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
-                    # Track successful entry for metrics
                     self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                     self.status = "in_library"
             elif scheduled_activity != "lecture":
@@ -423,7 +421,6 @@ class LibraryNetworkModel(mesa.Model):
         self.hours_per_step = 0.25  # 15 minutes per step
         self.steps_per_day = int(24 / self.hours_per_step)
         self.day = 0
-        
         
         # Use the provided mapping or a default empty one
         self.faculty_library_mapping = faculty_library_mapping # or {}
@@ -836,6 +833,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         frames=frames
     )
 
-    fig.show(renderer="browser")
+    # fig.show(renderer="browser")
     return model
 

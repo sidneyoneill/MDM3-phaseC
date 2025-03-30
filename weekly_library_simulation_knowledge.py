@@ -370,6 +370,10 @@ class Student(mesa.Agent):
                             # Library is full, add to attempted libraries
                             self.attempted_libraries.append(self.target_library_id)
                             
+                            # Track this rejection for metrics
+                            self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                            self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
+                            
                             # Update physical location to where the student actually is
                             self.current_physical_location = self.target_library_id
                             
@@ -402,6 +406,7 @@ class Student(mesa.Agent):
                             self.current_library_id = self.target_library_id
                             self.current_physical_location = self.target_library_id
                             self.model.libraries[self.current_library_id].add_student()
+                            self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
                             self.known_library_full = []
@@ -457,6 +462,9 @@ class Student(mesa.Agent):
                 if self.model.libraries[self.current_library_id].is_overcrowded():
                     # Preferred library is full, find another one
                     self.attempted_libraries.append(self.current_library_id)
+                    # Track this rejection for metrics
+                    self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                    self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
                     next_library = self._find_closest_library()
                     self.target_library_id = next_library
                     self.status = "traveling"
@@ -472,6 +480,7 @@ class Student(mesa.Agent):
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
+                    self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                     self.status = "in_library"
             elif scheduled_activity != "lecture":
                 # Lecture ended, student wants to go off campus
@@ -580,6 +589,9 @@ class LibraryNetworkModel(mesa.Model):
             # Use the capacity from the CSV file instead of random values
             capacity = row['Capacity']  # Get capacity from the CSV
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
+            
+        self.library_rejection_counts = {lib_id: 0 for lib_id in self.libraries.keys()}
+        self.library_entry_attempts = {lib_id: 0 for lib_id in self.libraries.keys()}
             
         # Create student scheduler
         self.schedule = RandomActivation(self) # self.schedule is an instance of RandomActivation, which is a scheduler provided by mesa
@@ -966,6 +978,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         frames=frames
     )
 
-    fig.show(renderer="browser")
+    # fig.show(renderer="browser")
     return model
 

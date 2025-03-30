@@ -6,6 +6,7 @@ Created on Sat Mar 29 14:09:00 2025
 @author: charliedavies
 """
 
+
 def calculate_library_metrics(model, simulation_days=5):
     """
     Calculate comprehensive metrics for library usage based on a completed simulation.
@@ -61,9 +62,9 @@ def calculate_library_metrics(model, simulation_days=5):
     squared_deviations = sum(dev**2 for dev in deviation_from_mean.values())
     std_deviation = math.sqrt(squared_deviations / len(deviation_from_mean)) if deviation_from_mean else 0
     
-  # 5 & 6. Count failed entries and calculate rejection probabilities
+    # 5 & 6. Count failed entries and calculate rejection probabilities
     # We need to modify this part to use model-wide tracking instead of agent.attempted_libraries
-    
+     
     # If the model doesn't have these attributes, we need to add them
     if not hasattr(model, 'library_rejection_counts'):
         # This means metrics were calculated without tracking rejections during simulation
@@ -166,15 +167,84 @@ def print_library_metrics(metrics):
     print()
 
 
-# Example usage:
-def analyze_library_simulation(model, days=5):
+def aggregate_metrics(all_metrics):
     """
-    Run metrics analysis on a completed library simulation.
+    Aggregate metrics from multiple simulation runs.
     
     Parameters:
-    model (LibraryNetworkModel): The completed simulation model
-    days (int): Number of days the simulation was run for
+    all_metrics (list): List of metric dictionaries from each simulation
+    
+    Returns:
+    dict: Averaged metrics across all simulations
     """
-    metrics = calculate_library_metrics(model, simulation_days=days)
-    print_library_metrics(metrics)
-    return metrics
+    if not all_metrics:
+        return {}
+    
+    num_simulations = len(all_metrics)
+    first_metrics = all_metrics[0]
+    
+    # Initialize the aggregated metrics dictionary
+    aggregated = {}
+    
+    # Handle nested dictionaries (like average_occupancy_percentage)
+    for key, value in first_metrics.items():
+        if isinstance(value, dict):
+            aggregated[key] = {lib_name: 0 for lib_name in value.keys()}
+            for metrics in all_metrics:
+                for lib_name, metric_value in metrics[key].items():
+                    aggregated[key][lib_name] += metric_value / num_simulations
+        else:
+            # Handle non-dictionary metrics
+            aggregated[key] = sum(metrics[key] for metrics in all_metrics) / num_simulations
+    
+    return aggregated
+
+def print_aggregated_metrics(metrics, num_simulations):
+    """
+    Print aggregated metrics with information about the number of simulations.
+    
+    Parameters:
+    metrics (dict): Aggregated metrics
+    num_simulations (int): Number of simulations run
+    """
+    print(f"\n===== AGGREGATED METRICS ACROSS {num_simulations} SIMULATIONS =====\n")
+    
+    # 1. Print average occupancy percentages
+    print("1. AVERAGE OCCUPANCY (% of capacity)")
+    print("-" * 40)
+    for lib_name, percentage in metrics["average_occupancy_percentage"].items():
+        print(f"  {lib_name}: {percentage:.2f}%")
+    print()
+    
+    # 2. Print mean occupancy
+    print(f"2. MEAN OCCUPANCY ACROSS ALL LIBRARIES: {metrics['mean_occupancy_all_libraries']:.2f}%")
+    print()
+    
+    # 3. Print deviation from mean
+    print("3. DEVIATION FROM MEAN OCCUPANCY")
+    print("-" * 40)
+    for lib_name, deviation in metrics["deviation_from_mean"].items():
+        print(f"  {lib_name}: {deviation:+.2f}%")
+    print()
+    
+    # 4. Print standard deviation
+    print(f"4. STANDARD DEVIATION OF OCCUPANCY: {metrics['standard_deviation']:.2f}%")
+    print()
+    
+    # 5. Print failed entries percentage
+    print(f"5. FAILED LIBRARY ENTRIES: {metrics['failed_entries_percentage']:.2f}% of all attempts")
+    print()
+    
+    # 6. Print rejection probabilities
+    print("6. REJECTION PROBABILITY BY LIBRARY")
+    print("-" * 40)
+    for lib_name, probability in metrics["rejection_probability"].items():
+        print(f"  {lib_name}: {probability:.2f}%")
+    print()
+    
+    # 7. Print congestion scores
+    print("7. CONGESTION SCORE (hours above 80% capacity)")
+    print("-" * 40)
+    for lib_name, hours in metrics["congestion_score_hours"].items():
+        print(f"  {lib_name}: {hours:.1f} hours")
+    print()
