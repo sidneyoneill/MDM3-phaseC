@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Mar  6 18:20:56 2025
+Created on Sun Mar 30 12:04:14 2025
 
 @author: lewisvaughan
 """
 
-from weekly_library_simulation import run_library_simulation_with_frames
+from weekly_library_simulation_knowledge import run_library_simulation_with_frames
 from weekly_student_data import generate_student_population, faculty_library_mapping
 from weekly_library_metrics import analyze_library_simulation
 
@@ -25,7 +25,7 @@ student_data = generate_student_population(
     end_hour=END_HOUR
 )
 
-# RUN FOR WEEKLY SIMULATION WITHOUT KNOWLEDGE
+# USE THIS FOR WEEKLY SIMULATION WITH KNOWLEDGE
 model = run_library_simulation_with_frames(
     days=5,  # 5 days, 8am-8pm each day
     student_count=STUDENT_COUNT,
@@ -33,7 +33,8 @@ model = run_library_simulation_with_frames(
     start_hour=START_HOUR,
     end_hour=END_HOUR,
     student_data=student_data,
-    faculty_library_mapping=faculty_library_mapping
+    faculty_library_mapping=faculty_library_mapping, 
+    occupancy_knowledge_proportion=1.0
 )
 
 analyze_library_simulation(model, days=5)
@@ -43,5 +44,4 @@ results = model.datacollector.get_model_vars_dataframe()
 print(results.tail())
 
 # Save the results to CSV for further analysis
-# results.to_csv("weekly_library_simulation_results.csv")
-
+# results.to_csv("weekly_library_simulation_results_knowledge.csv")

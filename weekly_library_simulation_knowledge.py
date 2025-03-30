@@ -33,6 +33,8 @@ class Student(mesa.Agent):
         self.acceptable_libraries = []
         self.avoided_libraries = []
         self.schedule = {}  # Schedule with values: "library", "lecture", or None (off campus)
+        self.known_library_full = []
+        self.has_occupancy_knowledge = False
         self.current_physical_location = 'not_in_library'
         
         # Load data if provided
@@ -47,6 +49,12 @@ class Student(mesa.Agent):
                 self.avoided_libraries = self.model.faculty_library_mapping[self.faculty].get("avoided", [])
                 
             self.schedule = student_data.get("schedule", {})
+            
+            if "has_occupancy_knowledge" in student_data:
+                self.has_occupancy_knowledge = student_data.get("has_occupancy_knowledge")
+            else:
+                # Randomly determine if this student has occupancy knowledge based on model parameter
+                self.has_occupancy_knowledge = random.random() < self.model.occupancy_knowledge_proportion
         else:
             print(f"Error: No student data provided for student {unique_id}")
             
@@ -62,11 +70,21 @@ class Student(mesa.Agent):
         return self.schedule.get((day, hour))
     
     def _find_closest_library(self):
-        """Find the closest library by travel time that respects faculty preferences"""
-        # First check if preferred library is available
-        if self.preferred_library_id not in self.attempted_libraries:
-            return self.preferred_library_id
+        """Find the best library considering preferences, distance, and occupancy"""
+        # Track libraries that are known to be full or have been rejected based on occupancy probability
+        if not hasattr(self, 'known_library_full'):
+            self.known_library_full = []
         
+        # First check if preferred library is available and not known to be full
+        if self.preferred_library_id not in self.attempted_libraries and self.preferred_library_id not in self.known_library_full:
+            # Check the occupancy probability
+            if self._should_choose_based_on_occupancy(self.preferred_library_id):
+                return self.preferred_library_id
+            else:
+                if self.has_occupancy_knowledge: # Only knowledgeable students track full libraries
+                    # Reject based on occupancy, add to known full list
+                    self.known_library_full.append(self.preferred_library_id)
+                    
         # Determine the starting point for distance calculations
         # Use current_physical_location instead of current_library_id when not in a library
         if self.current_library_id != 'not_in_library':
@@ -74,20 +92,21 @@ class Student(mesa.Agent):
         elif self.current_physical_location != 'not_in_library':
             origin = self.current_physical_location
         else:
-            origin = self.preferred_library_id  
-        
+            origin = self.preferred_library_id            
+    
         # Get preferred libraries from faculty mapping
         preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
         
-        # Try other preferred libraries that haven't been attempted yet
+        # Try other preferred libraries that haven't been attempted yet or known to be too full
         available_preferred = [lib for lib in preferred_libraries 
                              if lib in self.model.libraries 
                              and lib not in self.attempted_libraries 
+                             and lib not in self.known_library_full
                              and lib != self.preferred_library_id]
         
-        if available_preferred and origin != 'not_in_library':
-            # Find closest preferred library
-            preferred_distances = {}
+        if available_preferred and origin != 'not_in_library': 
+            # Find closest preferred library considering travel time
+            preferred_candidates = {}
             for library_id in available_preferred:
                 try:
                     dist = nx.shortest_path_length(
@@ -96,21 +115,62 @@ class Student(mesa.Agent):
                         library_id, 
                         weight='weight'
                     )
-                    preferred_distances[library_id] = dist
+                    preferred_candidates[library_id] = dist
                 except nx.NetworkXNoPath:
                     pass
             
-            if preferred_distances:
-                return min(preferred_distances, key=preferred_distances.get)
-        elif available_preferred: # should not come in here - if off campus, their attempted library list should be empty
-            # If student is off-campus, just choose a random preferred library
-            return random.choice(available_preferred)
+            if preferred_candidates:
+                # Sort by distance
+                sorted_candidates = sorted(preferred_candidates.items(), key=lambda x: x[1])
+                
+                # Try candidates in order of increasing distance
+                for library_id, _ in sorted_candidates:
+                    if self._should_choose_based_on_occupancy(library_id):
+                        return library_id
+                    else:
+                        if self.has_occupancy_knowledge: # Only knowledgeable students track full libraries
+                            # Reject based on occupancy
+                            self.known_library_full.append(library_id)
+                            
+                # For knowledgeable students: if all were rejected based on occupancy, go to next tier
+                # For non-knowledgeable students: this block wouldn't happen, they'd always choose the first option
+                if self.has_occupancy_knowledge:
+                    if len(self.known_library_full) == len(available_preferred) + (1 if self.preferred_library_id not in self.known_library_full else 0):
+                        # All preferred libraries rejected - move to acceptable ones
+                        pass
+                    else:
+                        # Try again with the closest preferred (fallback if all have poor occupancy)
+                        return sorted_candidates[0][0]
+             
+        elif available_preferred:  # off campus 
+            # If student is off-campus, for knowledgeable students sort by expected occupancy
+            # For non-knowledgeable students, just pick the first one in the list
+            if not self.has_occupancy_knowledge and available_preferred:
+                return random.choice(available_preferred)
         
-        # If no preferred libraries available, try acceptable libraries
-        acceptable_distances = {}
+            # Only for knowledgeable students - evaluate occupancy
+            occupancy_scores = {}
+            for library_id in available_preferred:
+                occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                # Higher score = better choice (lower occupnancy)
+                occupancy_scores[library_id] = self._calculate_occupancy_probability(occupancy_pct)
+            
+            if occupancy_scores:
+                best_library = max(occupancy_scores, key=occupancy_scores.get)
+                if self._should_choose_based_on_occupancy(best_library):
+                    return best_library 
+                else:
+                    # Only track for knowledgeable students
+                    if self.has_occupancy_knowledge:
+                        self.known_library_full.append(best_library)
+        
+        
+        # If no preferred libraries available or all rejected, try acceptable libraries
+        acceptable_candidates = {}
         for library_id in self.acceptable_libraries:
             if (library_id in self.model.libraries 
                 and library_id not in self.attempted_libraries 
+                and library_id not in self.known_library_full
                 and library_id != self.preferred_library_id
                 and library_id not in preferred_libraries):
                 
@@ -123,26 +183,49 @@ class Student(mesa.Agent):
                             library_id, 
                             weight='weight'
                         )
-                        acceptable_distances[library_id] = dist
+                        acceptable_candidates[library_id] = dist
                     except nx.NetworkXNoPath:
                         # No path exists between these libraries
                         pass
                 else:
-                    # If student is off-campus, add library with a placeholder distance
-                    acceptable_distances[library_id] = 0
+                    
+                    # If student is off-campus
+                    if self.has_occupancy_knowledge:
+                        # For knowledgeable students, add library based on occupancy
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        # Invert the value so lower occupancy = lower "distance" score
+                        acceptable_candidates[library_id] = 1.0 - self._calculate_occupancy_probability(occupancy_pct)
+                    else:
+                        # For non-knowledgeable students, just use a constant value
+                        acceptable_candidates[library_id] = 1.0  # All equal priority
+
+        # If we have acceptable options, try them in order of distance/occupancy
+        if acceptable_candidates:
+            sorted_candidates = sorted(acceptable_candidates.items(), key=lambda x: x[1])
         
-        # If we have acceptable options, return the closest one
-        if acceptable_distances:
-            if origin != 'not_in_library':
-                return min(acceptable_distances, key=acceptable_distances.get)
-            else:
-                # If student is off-campus, just choose a random acceptable library
-                return random.choice(list(acceptable_distances.keys()))
-        
-        # If all acceptable libraries are full, only then consider avoided libraries
-        avoided_distances = {}
+            
+            # For non-knowledgeable students, simply take the first one
+            if not self.has_occupancy_knowledge and sorted_candidates:
+                return random.choice(sorted_candidates)[0]
+            
+            # For knowledgeable students, evaluate occupancy
+            for library_id, _ in sorted_candidates:
+                if self._should_choose_based_on_occupancy(library_id):
+                    return library_id
+                else:
+                    # Only track for knowledgeable students
+                    if self.has_occupancy_knowledge:
+                        # Reject based on occupancy
+                        self.known_library_full.append(library_id)
+            
+            # If all were rejected or for non-knowledgeable students, use the closest one (or lowest occupancy one if from off campus)
+            return sorted_candidates[0][0]
+               
+        # If all acceptable libraries are full/rejected, only then consider avoided libraries
+        avoided_candidates = {}
         for library_id in self.model.libraries.keys():
             if (library_id not in self.attempted_libraries and 
+                library_id not in self.known_library_full and
                 library_id != self.preferred_library_id and
                 library_id not in preferred_libraries and
                 library_id not in self.acceptable_libraries):
@@ -155,24 +238,80 @@ class Student(mesa.Agent):
                             library_id, 
                             weight='weight'
                         )
-                        avoided_distances[library_id] = dist
+                        avoided_candidates[library_id] = dist
                     except nx.NetworkXNoPath:
                         pass
                 else:
-                    # If student is off-campus, add library with a placeholder distance
-                    avoided_distances[library_id] = 0
+                    # If student is off-campus
+                    if self.has_occupancy_knowledge:
+                        # For knowledgeable students, add library based on occupancy
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        # Invert the value so lower occupancy = lower "distance" score
+                        avoided_candidates[library_id] = 1.0 - self._calculate_occupancy_probability(occupancy_pct)
+                    else:
+                        # For non-knowledgeable students, just use a constant value
+                        avoided_candidates[library_id] = 1.0  # All equal priority
         
-        # If we have avoided options, return the closest one
-        if avoided_distances:
-            if origin != 'not_in_library':
-                return min(avoided_distances, key=avoided_distances.get)
-            else:
-                # If student is off-campus, just choose a random avoided library
-                return random.choice(list(avoided_distances.keys()))
+        # Try avoided libraries if available
+        if avoided_candidates:
+            sorted_candidates = sorted(avoided_candidates.items(), key=lambda x: x[1])
+            
+            # For non-knowledgeable students, just take the first one
+            if not self.has_occupancy_knowledge and sorted_candidates:
+                return random.choice(sorted_candidates)[0]
+            
+            # # For knowledgeable students, evaluate occupancy
+            for library_id, _ in sorted_candidates:
+                if self._should_choose_based_on_occupancy(library_id):
+                    return library_id
+                else:
+                    # Only track for knowledgeable students
+                    if self.has_occupancy_knowledge:
+                        # Reject based on occupancy
+                        self.known_library_full.append(library_id)
+                    
+            # If all were rejected or for non-knowledgeable students, use the closest one (or lowest occupancy one if from off campus)
+            return sorted_candidates[0][0]
         
-        # If all libraries have been attempted, reset attempted list and return to preferred
+        # If all libraries have been attempted or rejected, reset lists and return to preferred
         self.attempted_libraries = []
+        self.known_library_full = []
         return self.preferred_library_id
+    
+    def _calculate_occupancy_probability(self, occupancy):
+        """
+        Calculate probability of choosing a library based on its occupancy.
+        Uses the function y = e^(-0.1*(x^5 / (1-x))), where x is occupancy (0-1) and y is probability (0-1).
+        """
+        # Apply the function y = e^(-0.2*(x^3 / (1-x)))
+        try:
+            exponent = -0.2 * ((occupancy**3) / (1 - occupancy))
+            probability = math.exp(exponent)
+            return probability
+        except (OverflowError, ZeroDivisionError):
+            # Handle numerical issues near occupancy=1
+            return 0.0
+
+    def _should_choose_based_on_occupancy(self, library_id):
+        """
+        Decide whether to choose a library based on its occupancy.
+        Returns True if the library should be chosen, False otherwise.
+        """
+        if library_id not in self.model.libraries:
+            return False
+        
+        # If student doesn't have occupancy knowledge, always select the library
+        if not self.has_occupancy_knowledge:
+            return True
+        
+        # Get current occupancy percentage
+        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+        
+        # Calculate probability of choosing this library
+        probability = self._calculate_occupancy_probability(occupancy_pct)
+        
+        # Make random decision based on probability
+        return random.random() < probability
     
     def step(self):
         """Perform a step in the simulation"""  
@@ -195,6 +334,7 @@ class Student(mesa.Agent):
                     self.current_physical_location = 'not_in_library'
                     self.status = "off_campus"
                     self.attempted_libraries = []  # Reset attempted libraries list
+                    self.known_library_full = []
                     self.target_library_id = None
                 else:
                     # Student is arriving at a library
@@ -264,6 +404,7 @@ class Student(mesa.Agent):
                             self.model.libraries[self.current_library_id].add_student()
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
+                            self.known_library_full = []
                             self.target_library_id = None
             return    
         
@@ -404,7 +545,8 @@ class LibraryNetworkModel(mesa.Model):
                  start_hour=8,    # Start at 8am
                  end_hour=20,     # End at 8pm
                  student_data=None,
-                 faculty_library_mapping=None):    
+                 faculty_library_mapping=None,
+                 occupancy_knowledge_proportion=1.0):    
         
         super().__init__()
         self.student_count = student_count
@@ -412,6 +554,8 @@ class LibraryNetworkModel(mesa.Model):
         self.hours_per_step = 0.25  # 15 minutes per step
         self.steps_per_day = int(24 / self.hours_per_step)
         self.day = 0
+        
+        self.occupancy_knowledge_proportion = occupancy_knowledge_proportion
         
         # Use the provided mapping or a default empty one
         self.faculty_library_mapping = faculty_library_mapping # or {}
@@ -544,6 +688,7 @@ class LibraryNetworkModel(mesa.Model):
                 student.status = "off_campus"
                 student.travel_time_remaining = 0
                 student.attempted_libraries = []
+                student.known_library_full = []
              
     def get_network_visualization_data(self):
         """Get data for network visualization"""
@@ -606,7 +751,7 @@ class LibraryNetworkModel(mesa.Model):
             # Color node based on occupancy percentage
             if occupancy_pct < 50:
                 color = 'green'  # Low occupancy
-            elif occupancy_pct < 80:
+            elif occupancy_pct < 90:
                 color = 'orange'  # Medium occupancy
             else:
                 color = 'red'  # High occupancy
@@ -648,7 +793,7 @@ class LibraryNetworkModel(mesa.Model):
 #---------------------------------------------------------------------------------------------------------------
 
 def run_library_simulation_with_frames(days=5, student_count=10, update_interval=1, 
-                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None):
+                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None, occupancy_knowledge_proportion=1.0):
     """
     Run the library simulation for a specified number of days (default 5 days = one week)
     Update interval of 1 means create a frame for every step (15 minutes)
@@ -659,7 +804,8 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         start_hour=start_hour,
         end_hour=end_hour,
         student_data=student_data,
-        faculty_library_mapping=faculty_library_mapping
+        faculty_library_mapping=faculty_library_mapping,
+        occupancy_knowledge_proportion=occupancy_knowledge_proportion
     )
     
     # Create a frame for each 15-minute interval
