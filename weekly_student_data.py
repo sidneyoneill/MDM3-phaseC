@@ -6,7 +6,7 @@ Monte Carlo student schedule generator for library simulation
 
 import random
 import numpy as np
-
+"""
 # Faculty to library mapping with preferred and avoided libraries
 faculty_library_mapping = {
     "Engineering": {
@@ -33,6 +33,35 @@ faculty_library_mapping = {
         "preferred": [1, 7, 8],
         "acceptable": [9, 10, 11],
         "avoided": [2, 3, 4, 5, 6]
+    }
+}
+"""
+# Faculty to library mapping with preferred and avoided libraries
+faculty_library_mapping = {
+    "Engineering": {
+        "preferred": [6],         # Queens building is preferred
+        "acceptable": [1,2,3,4,5,7,8,9,10,11],  # These are acceptable alternatives
+        "avoided": [] # only go to these if the others are full
+    },
+    "Arts": {
+        "preferred": [1, 7, 11],
+        "acceptable": [8, 9, 2, 3, 4, 5, 6, 10],
+        "avoided": []
+    },
+    "Science": {
+        "preferred": [1, 2, 5],
+        "acceptable": [8, 11, 7, 9, 10, 3, 4, 6],
+        "avoided": []
+    },
+    "Medical": {
+        "preferred": [4],
+        "acceptable": [8, 11, 1, 7, 9, 2, 3, 5, 6, 10],
+        "avoided": []
+    },
+    "Social_science_law": {
+        "preferred": [1, 7, 8],
+        "acceptable": [9, 10, 11, 2, 3, 4, 5, 6],
+        "avoided": []
     }
 }
 
