@@ -33,6 +33,7 @@ class Student(mesa.Agent):
         self.acceptable_libraries = []
         self.avoided_libraries = []
         self.schedule = {}  # Schedule with values: "library", "lecture", or None (off campus)
+        self.current_physical_location = 'not_in_library'
         
         # Load data if provided
         if student_data:
@@ -67,7 +68,13 @@ class Student(mesa.Agent):
             return self.preferred_library_id
         
         # Determine the starting point for distance calculations
-        origin = self.current_library_id if self.current_library_id != 'not_in_library' else self.preferred_library_id
+        # Use current_physical_location instead of current_library_id when not in a library
+        if self.current_library_id != 'not_in_library':
+            origin = self.current_library_id
+        elif self.current_physical_location != 'not_in_library':
+            origin = self.current_physical_location
+        else:
+            origin = self.preferred_library_id  
         
         # Get preferred libraries from faculty mapping
         preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
@@ -185,6 +192,7 @@ class Student(mesa.Agent):
                 if self.target_library_id == 'not_in_library':
                     # Student is going off campus
                     self.current_library_id = 'not_in_library'
+                    self.current_physical_location = 'not_in_library'
                     self.status = "off_campus"
                     self.attempted_libraries = []  # Reset attempted libraries list
                     self.target_library_id = None
@@ -222,12 +230,20 @@ class Student(mesa.Agent):
                             # Library is full, add to attempted libraries
                             self.attempted_libraries.append(self.target_library_id)
                             
+                            # Track this rejection for metrics
+                            self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                            self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
+                            
+                            # Update physical location to where the student actually is
+                            self.current_physical_location = self.target_library_id
+                            
                             # Find another library to go to
                             next_library = self._find_closest_library()
                             
                             # If no valid library found, go off campus
                             if next_library is None:
                                 self.current_library_id = 'not_in_library'
+                                self.current_physical_location = 'not_in_library'
                                 self.status = "off_campus"
                                 return
                             
@@ -248,7 +264,9 @@ class Student(mesa.Agent):
                         else:
                             # Library has space, enter it
                             self.current_library_id = self.target_library_id
+                            self.current_physical_location = self.target_library_id
                             self.model.libraries[self.current_library_id].add_student()
+                            self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
                             self.target_library_id = None
@@ -290,6 +308,7 @@ class Student(mesa.Agent):
             elif scheduled_activity != "library":
                 # Student needs to leave library (not in their schedule)
                 self.target_library_id = 'not_in_library'
+                self.current_physical_location = 'not_in_library'
                 self.model.libraries[self.current_library_id].remove_student()
                 self.status = "traveling"
                 # No travel time for going off campus
@@ -302,6 +321,9 @@ class Student(mesa.Agent):
                 if self.model.libraries[self.current_library_id].is_overcrowded():
                     # Preferred library is full, find another one
                     self.attempted_libraries.append(self.current_library_id)
+                    # Track this rejection for metrics
+                    self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                    self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1 
                     next_library = self._find_closest_library()
                     self.target_library_id = next_library
                     self.status = "traveling"
@@ -317,10 +339,12 @@ class Student(mesa.Agent):
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
+                    self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                     self.status = "in_library"
             elif scheduled_activity != "lecture":
                 # Lecture ended, student wants to go off campus
                 self.target_library_id = 'not_in_library'
+                self.current_physical_location = 'not_in_library'
                 self.status = "traveling"
                 # No travel time for going off campus
                 self.travel_time_remaining = 0
@@ -332,14 +356,14 @@ class Student(mesa.Agent):
                 self.target_library_id = self.preferred_library_id
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
             elif scheduled_activity == "library":
                 # Student needs to go to a library - choose the preferred one first
                 target_library = self._find_closest_library()
                 self.target_library_id = target_library
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -363,7 +387,15 @@ class Library(object):
             print(f"Warning: Attempted to remove student from {self.name} but occupancy is already 0!")
             
     def is_overcrowded(self):
-        return self.occupancy >= self.capacity * 0.9  # 90% of capacity is "overcrowded"
+        # Always consider fully occupied libraries as overcrowded
+        if self.occupancy >= self.capacity:
+            return True
+        # For libraries between 90% and 100% capacity, there's a probabilistic chance
+        elif self.occupancy >= self.capacity * 0.9:
+            # 10% chance of allowing the student (90% chance of returning True)
+            return random.random() > 0.1
+        # Libraries below 90% capacity are not overcrowded
+        return False
         
     def get_occupancy_percentage(self):
         return (self.occupancy / self.capacity) * 100 if self.capacity > 0 else 0
@@ -413,6 +445,10 @@ class LibraryNetworkModel(mesa.Model):
             # Use the capacity from the CSV file instead of random values
             capacity = row['Capacity']  # Get capacity from the CSV
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
+            
+        # Add tracking for library rejections and entry attempts
+        self.library_rejection_counts = {lib_id: 0 for lib_id in self.libraries.keys()}
+        self.library_entry_attempts = {lib_id: 0 for lib_id in self.libraries.keys()}
             
         # Create student scheduler
         self.schedule = RandomActivation(self) # self.schedule is an instance of RandomActivation, which is a scheduler provided by mesa
@@ -516,6 +552,7 @@ class LibraryNetworkModel(mesa.Model):
                 
                 # Reset student location and status
                 student.current_library_id = 'not_in_library'
+                student.current_physical_location = 'not_in_library'
                 student.target_library_id = None
                 student.status = "off_campus"
                 student.travel_time_remaining = 0
@@ -569,15 +606,20 @@ class LibraryNetworkModel(mesa.Model):
             library = self.libraries[node]
             lecture_count = lecture_counts.get(node, 0)
             
-            # Include lecture count in node label
-            node_labels.append(f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}")
+            # Only add lecture count for Queens library (node ID 6)
+            if node == 6:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}"
+            else:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}"
             
+            node_labels.append(node_label)
+     
             occupancy_pct = library.get_occupancy_percentage()
             
             # Color node based on occupancy percentage
             if occupancy_pct < 50:
                 color = 'green'  # Low occupancy
-            elif occupancy_pct < 90:
+            elif occupancy_pct < 80:
                 color = 'orange'  # Medium occupancy
             else:
                 color = 'red'  # High occupancy
@@ -648,8 +690,8 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         current_hour = start_hour + ((step % intervals_per_day) // 4)
         current_minute = (step % 4) * 15
         
-        # Set the model's current step
         model.current_step = step
+        model.step()
         
         # Get network data for this step
         vis_data = model.get_network_visualization_data()
@@ -705,10 +747,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         # Add the frame
         frames.append(frame)
         
-        # Run the simulation for one step (15 minutes)
-        if step < total_intervals - 1:  # Don't step after the last frame
-            model.step()
-    
     # Create slider steps with clearer day/time labels
     slider_steps = []
     
@@ -795,6 +833,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         frames=frames
     )
 
-    fig.show(renderer="browser")
+    # fig.show(renderer="browser")
     return model
 

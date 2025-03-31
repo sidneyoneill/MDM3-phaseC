@@ -14,7 +14,7 @@ START_HOUR = 8    # 8am
 END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 12  
-STUDENT_COUNT = 3000  
+STUDENT_COUNT = 4000 
 TRACKED_STUDENT_ID = 0 # comment out if want no tracking
 
 # Generate Monte Carlo student data

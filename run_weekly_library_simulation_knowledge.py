@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Mar  6 18:20:56 2025
+Created on Sun Mar 30 12:04:14 2025
 
 @author: lewisvaughan
 """
 import pandas as pd
 
-from weekly_library_simulation import run_library_simulation_with_frames
+from weekly_library_simulation_knowledge import run_library_simulation_with_frames
 from weekly_student_data import generate_student_population, faculty_library_mapping
 from weekly_library_metrics import calculate_library_metrics, print_aggregated_metrics, aggregate_metrics
 
@@ -20,10 +20,9 @@ STUDENT_COUNT = 4000  # Now simulating 100 students
 NUM_DAYS = 5
 NUM_SIMULATIONS = 5
 
-
 def run_multiple_simulations(num_simulations=5, days=5, student_count=4000, 
                             update_interval=1, start_hour=8, end_hour=20,
-                            faculty_library_mapping=None):
+                            faculty_library_mapping=None, occupancy_knowledge_proportion=1.0):
     """
     Run multiple library simulations and aggregate the results.
     """
@@ -49,7 +48,8 @@ def run_multiple_simulations(num_simulations=5, days=5, student_count=4000,
             start_hour=start_hour,
             end_hour=end_hour,
             student_data=student_data,
-            faculty_library_mapping=faculty_library_mapping
+            faculty_library_mapping=faculty_library_mapping,
+            occupancy_knowledge_proportion=occupancy_knowledge_proportion
         )
         
         # After simulation completes, analyze the data
@@ -66,7 +66,7 @@ def run_multiple_simulations(num_simulations=5, days=5, student_count=4000,
         all_metrics.append(metrics)
     
     # Save the combined results to Excel
-    all_results.to_csv("all_simulation_runs.csv")
+    all_results.to_csv("all_simulation_runs_knowledge.csv")
     
     # Aggregate the metrics
     return aggregate_metrics(all_metrics)
@@ -84,3 +84,4 @@ aggregated_metrics = run_multiple_simulations(
 
 # Print the aggregated metrics
 print_aggregated_metrics(aggregated_metrics, NUM_SIMULATIONS)
+

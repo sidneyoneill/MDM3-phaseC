@@ -33,6 +33,9 @@ class Student(mesa.Agent):
         self.acceptable_libraries = []
         self.avoided_libraries = []
         self.schedule = {}  # Schedule with values: "library", "lecture", or None (off campus)
+        self.known_library_full = []
+        self.has_occupancy_knowledge = False
+        self.current_physical_location = 'not_in_library'
         
         # Load data if provided
         if student_data:
@@ -46,6 +49,12 @@ class Student(mesa.Agent):
                 self.avoided_libraries = self.model.faculty_library_mapping[self.faculty].get("avoided", [])
                 
             self.schedule = student_data.get("schedule", {})
+            
+            if "has_occupancy_knowledge" in student_data:
+                self.has_occupancy_knowledge = student_data.get("has_occupancy_knowledge")
+            else:
+                # Randomly determine if this student has occupancy knowledge based on model parameter
+                self.has_occupancy_knowledge = random.random() < self.model.occupancy_knowledge_proportion
         else:
             print(f"Error: No student data provided for student {unique_id}")
             
@@ -55,33 +64,73 @@ class Student(mesa.Agent):
         self.travel_time_remaining = 0
         self.status = "off_campus"  # Can be "in_library", "in_lecture", "traveling", or "off_campus"
         self.attempted_libraries = []  # Track libraries that were attempted but full
-                
-    def get_schedule_activity(self, current_hour):
-        """Get the student's scheduled activity for the current hour"""
-        return self.schedule.get(current_hour)
+                    
+    def get_schedule_activity(self, day, hour):
+        """Get the student's scheduled activity for the current day and hour"""
+        return self.schedule.get((day, hour))
     
     def _find_closest_library(self):
-        """Find the closest library by travel time that respects faculty preferences"""
-        # First check if preferred library is available
-        if self.preferred_library_id not in self.attempted_libraries:
-            return self.preferred_library_id
+        """Find the best library considering preferences, distance, and occupancy using a combined score"""
+        # Track libraries that are known to be full or have been rejected based on occupancy probability
+        if not hasattr(self, 'known_library_full'):
+            self.known_library_full = []
         
+        # First check if preferred library is available and not known to be full
+        if self.preferred_library_id not in self.attempted_libraries and self.preferred_library_id not in self.known_library_full:
+            # For non-knowledgeable students, just return the preferred library
+            if not self.has_occupancy_knowledge:
+                return self.preferred_library_id
+                
+            # For knowledgeable students, check if it's too full
+            if self._should_choose_based_on_occupancy(self.preferred_library_id):
+                return self.preferred_library_id
+            else:
+                # Reject based on occupancy, add to known full list
+                self.known_library_full.append(self.preferred_library_id)
+                        
         # Determine the starting point for distance calculations
-        origin = self.current_library_id if self.current_library_id != 'not_in_library' else self.preferred_library_id
+        if self.current_library_id != 'not_in_library':
+            origin = self.current_library_id
+        elif self.current_physical_location != 'not_in_library':
+            origin = self.current_physical_location
+        else:
+            origin = 'not_in_library'  # Changed from self.preferred_library_id to 'not_in_library'          
         
         # Get preferred libraries from faculty mapping
         preferred_libraries = self.model.faculty_library_mapping[self.faculty].get("preferred", [])
         
-        # Try other preferred libraries that haven't been attempted yet
+        # Try other preferred libraries that haven't been attempted yet or known to be too full
         available_preferred = [lib for lib in preferred_libraries 
                              if lib in self.model.libraries 
                              and lib not in self.attempted_libraries 
+                             and lib not in self.known_library_full
                              and lib != self.preferred_library_id]
         
-        if available_preferred and origin != 'not_in_library':
-            # Find closest preferred library
-            preferred_distances = {}
+        # Initialize containers for library scores across preference tiers
+        preferred_scores = {}
+        acceptable_scores = {}
+        avoided_scores = {}
+        
+        # CALCULATE SCORES FOR PREFERRED LIBRARIES
+        if available_preferred:
+            if origin == 'not_in_library':
+                # For off-campus students, consider occupancy knowledge if they have it
+                if not self.has_occupancy_knowledge:
+                    # For non-knowledgeable off-campus students, just pick randomly
+                    return random.choice(available_preferred)
+                else:
+                    # For knowledgeable off-campus students, pick based on occupancy
+                    for library_id in available_preferred:
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        preferred_scores[library_id] = occupancy_pct
+                    
+                    # Use the library with the lowest occupancy
+                    sorted_candidates = sorted(preferred_scores.items(), key=lambda x: x[1])
+                    return sorted_candidates[0][0]
+                
+            # Calculate scores for both knowledgeable and non-knowledgeable students
             for library_id in available_preferred:
+                # Calculate travel distance (time) score
                 try:
                     dist = nx.shortest_path_length(
                         self.model.graph, 
@@ -89,88 +138,189 @@ class Student(mesa.Agent):
                         library_id, 
                         weight='weight'
                     )
-                    preferred_distances[library_id] = dist
+                    
+                    # For non-knowledgeable students, score is just distance
+                    if not self.has_occupancy_knowledge:
+                        preferred_scores[library_id] = dist
+                    else:
+                        # For knowledgeable students, calculate combined score
+                        # Get occupancy percentage (0-1)
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        
+                        # Calculate combined score: balance of distance and occupancy
+                        # Lower score is better (less time, less crowded)
+                        normalized_distance = dist / 100.0
+                        combined_score = (1.0 * normalized_distance) + (1.0 * occupancy_pct) 
+                        preferred_scores[library_id] = combined_score
+                        
                 except nx.NetworkXNoPath:
                     pass
-            
-            if preferred_distances:
-                return min(preferred_distances, key=preferred_distances.get)
-        elif available_preferred: # should not come in here - if off campus, their attempted library list should be empty
-            # If student is off-campus, just choose a random preferred library
-            return random.choice(available_preferred)
         
-        # If no preferred libraries available, try acceptable libraries
-        acceptable_distances = {}
-        for library_id in self.acceptable_libraries:
-            if (library_id in self.model.libraries 
-                and library_id not in self.attempted_libraries 
-                and library_id != self.preferred_library_id
-                and library_id not in preferred_libraries):
-                
-                if origin != 'not_in_library':
-                    try:
-                        # Get shortest path length using travel time weights
-                        dist = nx.shortest_path_length(
-                            self.model.graph, 
-                            origin, 
-                            library_id, 
-                            weight='weight'
-                        )
-                        acceptable_distances[library_id] = dist
-                    except nx.NetworkXNoPath:
-                        # No path exists between these libraries
-                        pass
+            # If we have preferred options with scores, use the best one
+            if preferred_scores:
+                # Sort by combined score (lower is better)
+                sorted_candidates = sorted(preferred_scores.items(), key=lambda x: x[1])
+                best_library = sorted_candidates[0][0]
+
+                return best_library
+        
+        # CALCULATE SCORES FOR ACCEPTABLE LIBRARIES
+        acceptable_libraries = [lib for lib in self.acceptable_libraries 
+                              if lib in self.model.libraries 
+                              and lib not in self.attempted_libraries 
+                              and lib not in self.known_library_full
+                              and lib != self.preferred_library_id
+                              and lib not in preferred_libraries]
+                              
+        if acceptable_libraries:
+            if origin == 'not_in_library':
+                # For off-campus students, consider occupancy knowledge if they have it
+                if not self.has_occupancy_knowledge:
+                    # For non-knowledgeable off-campus students, just pick randomly
+                    return random.choice(acceptable_libraries)
                 else:
-                    # If student is off-campus, add library with a placeholder distance
-                    acceptable_distances[library_id] = 0
-        
-        # If we have acceptable options, return the closest one
-        if acceptable_distances:
-            if origin != 'not_in_library':
-                return min(acceptable_distances, key=acceptable_distances.get)
-            else:
-                # If student is off-campus, just choose a random acceptable library
-                return random.choice(list(acceptable_distances.keys()))
-        
-        # If all acceptable libraries are full, only then consider avoided libraries
-        avoided_distances = {}
-        for library_id in self.model.libraries.keys():
-            if (library_id not in self.attempted_libraries and 
-                library_id != self.preferred_library_id and
-                library_id not in preferred_libraries and
-                library_id not in self.acceptable_libraries):
+                    # For knowledgeable off-campus students, pick based on occupancy
+                    for library_id in acceptable_libraries:
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        acceptable_scores[library_id] = occupancy_pct
+                    
+                    # Use the library with the lowest occupancy
+                    sorted_candidates = sorted(acceptable_scores.items(), key=lambda x: x[1])
+                    return sorted_candidates[0][0]
                 
-                if origin != 'not_in_library':
-                    try:
-                        dist = nx.shortest_path_length(
-                            self.model.graph, 
-                            origin, 
-                            library_id, 
-                            weight='weight'
-                        )
-                        avoided_distances[library_id] = dist
-                    except nx.NetworkXNoPath:
-                        pass
+            # Calculate scores for both knowledgeable and non-knowledgeable students
+            for library_id in acceptable_libraries:
+                try:
+                    dist = nx.shortest_path_length(
+                        self.model.graph, 
+                        origin, 
+                        library_id, 
+                        weight='weight'
+                    )
+                    
+                    # For non-knowledgeable students, score is just distance
+                    if not self.has_occupancy_knowledge:
+                        acceptable_scores[library_id] = dist
+                    else:
+                        # For knowledgeable students, calculate combined score
+                        # Get occupancy percentage (0-1)
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        
+                        # Calculate combined score (same logic as for preferred libraries)
+                        normalized_distance = dist / 100.0
+                        combined_score = (1.0 * normalized_distance) + (1.0 * occupancy_pct) 
+                        acceptable_scores[library_id] = combined_score
+                        
+                except nx.NetworkXNoPath:
+                    pass
+        
+            # If we have acceptable options with scores, use the best one
+            if acceptable_scores:
+                # Sort by combined score (lower is better)
+                sorted_candidates = sorted(acceptable_scores.items(), key=lambda x: x[1])
+                best_library = sorted_candidates[0][0]
+
+                return best_library
+        
+        # CALCULATE SCORES FOR AVOIDED LIBRARIES (only if other options exhausted)
+        avoided_libraries = [lib for lib in self.model.libraries.keys()
+                           if lib not in self.attempted_libraries 
+                           and lib not in self.known_library_full
+                           and lib != self.preferred_library_id
+                           and lib not in preferred_libraries
+                           and lib not in self.acceptable_libraries]
+                           
+        if avoided_libraries:
+            if origin == 'not_in_library':
+                # For off-campus students, consider occupancy knowledge if they have it
+                if not self.has_occupancy_knowledge:
+                    # For non-knowledgeable off-campus students, just pick randomly
+                    return random.choice(avoided_libraries)
                 else:
-                    # If student is off-campus, add library with a placeholder distance
-                    avoided_distances[library_id] = 0
+                    # For knowledgeable off-campus students, pick based on occupancy
+                    for library_id in avoided_libraries:
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        avoided_scores[library_id] = occupancy_pct
+                    
+                    # Use the library with the lowest occupancy
+                    sorted_candidates = sorted(avoided_scores.items(), key=lambda x: x[1])
+                    return sorted_candidates[0][0]
+                
+            # Calculate scores for both knowledgeable and non-knowledgeable students
+            for library_id in avoided_libraries:
+                try:
+                    dist = nx.shortest_path_length(
+                        self.model.graph, 
+                        origin, 
+                        library_id, 
+                        weight='weight'
+                    )
+                    
+                    # For non-knowledgeable students, score is just distance
+                    if not self.has_occupancy_knowledge:
+                        avoided_scores[library_id] = dist
+                    else:
+                        # For knowledgeable students, calculate combined score
+                        # Get occupancy percentage (0-1)
+                        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+                        
+                        # Calculate combined score (same logic as above)
+                        normalized_distance = dist / 100.0
+                        combined_score = (1.0 * normalized_distance) + (1.0 * occupancy_pct) 
+                        avoided_scores[library_id] = combined_score
+                        
+                except nx.NetworkXNoPath:
+                    pass
         
-        # If we have avoided options, return the closest one
-        if avoided_distances:
-            if origin != 'not_in_library':
-                return min(avoided_distances, key=avoided_distances.get)
-            else:
-                # If student is off-campus, just choose a random avoided library
-                return random.choice(list(avoided_distances.keys()))
+            # If we have avoided options with scores, use the best one
+            if avoided_scores:
+                # Sort by combined score (lower is better)
+                sorted_candidates = sorted(avoided_scores.items(), key=lambda x: x[1])
+                best_library = sorted_candidates[0][0]
+
+                return best_library
         
-        # If all libraries have been attempted, reset attempted list and return to preferred
+        # If all libraries have been attempted or rejected, reset lists and return to preferred
         self.attempted_libraries = []
+        self.known_library_full = []
         return self.preferred_library_id
+            
+    def _calculate_occupancy_probability(self, occupancy):
+        """
+        Calculate probability of choosing a library based on its occupancy.
+        Uses the function y = -x + 1, where x is occupancy (0-1) and y is probability (0-1).
+        """
+        try:
+            probability = -occupancy + 1
+            return max(0.0, min(1.0, probability))  # Ensure the result is between 0 and 1
+        except (OverflowError, ZeroDivisionError):
+            return 0.0
+        
+    def _should_choose_based_on_occupancy(self, library_id):
+        """
+        Decide whether to choose a library based on its occupancy.
+        Returns True if the library should be chosen, False otherwise.
+        """
+        if library_id not in self.model.libraries:
+            return False
+        
+        # If student doesn't have occupancy knowledge, always select the library
+        if not self.has_occupancy_knowledge:
+            return True
+        
+        # Get current occupancy percentage
+        occupancy_pct = self.model.libraries[library_id].get_occupancy_percentage() / 100.0
+        
+        # Calculate probability of choosing this library
+        probability = self._calculate_occupancy_probability(occupancy_pct)
+        
+        # Make random decision based on probability
+        return random.random() < probability
     
     def step(self):
-        """Perform a step in the simulation"""
-        current_hour = self.model.get_hour()
-        scheduled_activity = self.get_schedule_activity(current_hour)
+        """Perform a step in the simulation"""  
+        day, current_hour, _ = self.model.get_day_and_time()
+        scheduled_activity = self.get_schedule_activity(day, current_hour)
         
         # Check if traveling
         if self.status == "traveling":
@@ -185,12 +335,14 @@ class Student(mesa.Agent):
                 if self.target_library_id == 'not_in_library':
                     # Student is going off campus
                     self.current_library_id = 'not_in_library'
+                    self.current_physical_location = 'not_in_library'
                     self.status = "off_campus"
                     self.attempted_libraries = []  # Reset attempted libraries list
+                    self.known_library_full = []
                     self.target_library_id = None
                 else:
                     # Student is arriving at a library
-                    # Check if they're going to a lecture or library study session
+                    # Check if they're going to a lecture or to a library
                     if scheduled_activity == "lecture":
                         # Ensure target_library_id is valid before setting current_library_id
                         if self.target_library_id is not None and self.target_library_id in self.model.libraries:
@@ -222,12 +374,20 @@ class Student(mesa.Agent):
                             # Library is full, add to attempted libraries
                             self.attempted_libraries.append(self.target_library_id)
                             
+                            # Track this rejection for metrics
+                            self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                            self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
+                            
+                            # Update physical location to where the student actually is
+                            self.current_physical_location = self.target_library_id
+                            
                             # Find another library to go to
                             next_library = self._find_closest_library()
                             
                             # If no valid library found, go off campus
                             if next_library is None:
                                 self.current_library_id = 'not_in_library'
+                                self.current_physical_location = 'not_in_library'
                                 self.status = "off_campus"
                                 return
                             
@@ -240,17 +400,20 @@ class Student(mesa.Agent):
                             # Set travel time based on graph
                             if self.model.graph.has_edge(current_library, next_library):
                                 travel_time_minutes = self.model.graph[current_library][next_library]['weight']
-                                travel_time_steps = math.ceil(travel_time_minutes / 5)
-                                self.travel_time_remaining = travel_time_steps-1 
+                                travel_time_steps = math.ceil(travel_time_minutes / 15) 
+                                self.travel_time_remaining = travel_time_steps -1 
                             else:
                                 # No direct path, set default travel time
-                                self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
+                                self.travel_time_remaining = 1  # 15 min 
                         else:
                             # Library has space, enter it
                             self.current_library_id = self.target_library_id
+                            self.current_physical_location = self.target_library_id
                             self.model.libraries[self.current_library_id].add_student()
+                            self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                             self.status = "in_library"
                             self.attempted_libraries = []  # Reset attempted libraries list
+                            self.known_library_full = []
                             self.target_library_id = None
             return    
         
@@ -282,14 +445,15 @@ class Student(mesa.Agent):
                     # set travel time based on graph
                     if self.model.graph.has_edge(self.current_library_id, self.preferred_library_id):
                         travel_time_minutes = self.model.graph[self.current_library_id][self.preferred_library_id]['weight']
-                        self.travel_time_remaining = math.ceil(travel_time_minutes / 5)
+                        self.travel_time_remaining = math.ceil(travel_time_minutes / 15)
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
+                        self.travel_time_remaining = 1 # 15 min
                     
             elif scheduled_activity != "library":
                 # Student needs to leave library (not in their schedule)
                 self.target_library_id = 'not_in_library'
+                self.current_physical_location = 'not_in_library'
                 self.model.libraries[self.current_library_id].remove_student()
                 self.status = "traveling"
                 # No travel time for going off campus
@@ -302,6 +466,9 @@ class Student(mesa.Agent):
                 if self.model.libraries[self.current_library_id].is_overcrowded():
                     # Preferred library is full, find another one
                     self.attempted_libraries.append(self.current_library_id)
+                    # Track this rejection for metrics
+                    self.model.library_rejection_counts[self.target_library_id] = self.model.library_rejection_counts.get(self.target_library_id, 0) + 1
+                    self.model.library_entry_attempts[self.target_library_id] = self.model.library_entry_attempts.get(self.target_library_id, 0) + 1
                     next_library = self._find_closest_library()
                     self.target_library_id = next_library
                     self.status = "traveling"
@@ -309,18 +476,20 @@ class Student(mesa.Agent):
                     # Set travel time based on graph
                     if self.model.graph.has_edge(self.current_library_id, next_library):
                         travel_time_minutes = self.model.graph[self.current_library_id][next_library]['weight']
-                        travel_time_steps = math.ceil(travel_time_minutes / 5)
+                        travel_time_steps = math.ceil(travel_time_minutes / 15)
                         self.travel_time_remaining = travel_time_steps
                     else:
                         # No direct path, set default travel time
-                        self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
+                        self.travel_time_remaining = 1  # 15 min
                 else:
                     # Preferred library has space, enter it
                     self.model.libraries[self.current_library_id].add_student()
+                    self.model.library_entry_attempts[self.current_library_id] = self.model.library_entry_attempts.get(self.current_library_id, 0) + 1
                     self.status = "in_library"
             elif scheduled_activity != "lecture":
                 # Lecture ended, student wants to go off campus
                 self.target_library_id = 'not_in_library'
+                self.current_physical_location = 'not_in_library'
                 self.status = "traveling"
                 # No travel time for going off campus
                 self.travel_time_remaining = 0
@@ -332,14 +501,14 @@ class Student(mesa.Agent):
                 self.target_library_id = self.preferred_library_id
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
             elif scheduled_activity == "library":
                 # Student needs to go to a library - choose the preferred one first
                 target_library = self._find_closest_library()
                 self.target_library_id = target_library
                 self.status = "traveling"
                 # No travel time for coming from off campus
-                self.travel_time_remaining = 0
+                self.travel_time_remaining = 1
 
 #---------------------------------------------------------------------------------------------------------------
 
@@ -363,7 +532,15 @@ class Library(object):
             print(f"Warning: Attempted to remove student from {self.name} but occupancy is already 0!")
             
     def is_overcrowded(self):
-        return self.occupancy >= self.capacity * 0.9  # 90% of capacity is "overcrowded"
+        # Always consider fully occupied libraries as overcrowded
+        if self.occupancy >= self.capacity:
+            return True
+        # For libraries between 90% and 100% capacity, there's a probabilistic chance
+        elif self.occupancy >= self.capacity * 0.9:
+            # 10% chance of allowing the student (90% chance of returning True)
+            return random.random() > 0.1
+        # Libraries below 90% capacity are not overcrowded
+        return False
         
     def get_occupancy_percentage(self):
         return (self.occupancy / self.capacity) * 100 if self.capacity > 0 else 0
@@ -381,14 +558,17 @@ class LibraryNetworkModel(mesa.Model):
                  start_hour=8,    # Start at 8am
                  end_hour=20,     # End at 8pm
                  student_data=None,
-                 faculty_library_mapping=None):    
+                 faculty_library_mapping=None,
+                 occupancy_knowledge_proportion=1.0):    
         
         super().__init__()
         self.student_count = student_count
         self.current_step = 0
-        self.hours_per_step = 5/60  # 5 minutes
+        self.hours_per_step = 0.25  # 15 minutes per step
         self.steps_per_day = int(24 / self.hours_per_step)
         self.day = 0
+        
+        self.occupancy_knowledge_proportion = occupancy_knowledge_proportion
         
         # Use the provided mapping or a default empty one
         self.faculty_library_mapping = faculty_library_mapping # or {}
@@ -413,6 +593,9 @@ class LibraryNetworkModel(mesa.Model):
             # Use the capacity from the CSV file instead of random values
             capacity = row['Capacity']  # Get capacity from the CSV
             self.libraries[row['ID']] = Library(row['ID'], row['LibraryName'], capacity)
+            
+        self.library_rejection_counts = {lib_id: 0 for lib_id in self.libraries.keys()}
+        self.library_entry_attempts = {lib_id: 0 for lib_id in self.libraries.keys()}
             
         # Create student scheduler
         self.schedule = RandomActivation(self) # self.schedule is an instance of RandomActivation, which is a scheduler provided by mesa
@@ -447,21 +630,24 @@ class LibraryNetworkModel(mesa.Model):
         for i in self.df_times.index:
             for j in self.df_times.columns:
                 if not np.isnan(self.df_times.loc[i, j]) and i != j:
-                    G.add_edge(int(i), int(j), weight=self.df_times.loc[i, j])          
+                    G.add_edge(int(i), int(j), weight=self.df_times.loc[i, j])     
         return G
     
     def get_hour(self):
         """Get the current hour of the day (0-23)"""
-        # Calculate hour based on step and start_hour
-        step_hours = self.current_step * self.hours_per_step
-        return self.start_hour + int(step_hours)
+        _, hour, _ = self.get_day_and_time()
+        return hour
     
-    def get_minute(self):
-        """Get the current minute (0-59)"""
-        step_hours = self.current_step * self.hours_per_step  # Convert steps to hours
-        full_hours = int(step_hours)  # Integer part is hours
-        minutes = (step_hours - full_hours) * 60  # Fractional part converted to minutes
-        return int(minutes)
+    def get_day_and_time(self):
+        """Get the urrent day (1-5) and time (hour:minute)."""
+        # calculate which day we're on (1-5 for Monday-Friday)
+        day = (self.current_step // self.steps_per_operating_day) + 1
+        
+        # calculate current hour and minute
+        hour = self.start_hour + int((self.current_step % self.steps_per_operating_day) * self.hours_per_step)
+        minute = int(((self.current_step % self.steps_per_operating_day) * self.hours_per_step % 1) * 60)
+        
+        return day, hour, minute
     
     def get_library_occupancy(self):
         """Return dictionary of library occupancies"""
@@ -485,6 +671,13 @@ class LibraryNetworkModel(mesa.Model):
 
     def step(self):
         """Advance the model by one step (15-minute interval)."""
+        # check if at the start of a new day (8am) 
+        is_day_start = (self.current_step % self.steps_per_operating_day == 0)
+        
+        # reset all students to be off campus at day start
+        if is_day_start:
+            self.reset_students_for_new_day()
+        
         self.schedule.step() # Call RandomActivation, which randomly iterates through all the student agents and calls student.step() for each one
         self.current_step += 1
     
@@ -494,7 +687,25 @@ class LibraryNetworkModel(mesa.Model):
         # Still track day changes
         if self.current_step % self.steps_per_day == 0:
             self.day += 1
-    
+            
+    def reset_students_for_new_day(self):
+        """Reset all students to be off campus at the start of a new day """
+        for student in self.schedule.agents:
+            #only reset if not already off campus
+            if student.status != "off_campus":
+                # if they're in a library, make sure to decrement the occupancy
+                if student.status == "in_library" and student.current_library_id in self.libraries:
+                    self.libraries[student.current_library_id].remove_student()
+                
+                # Reset student location and status
+                student.current_library_id = 'not_in_library'
+                student.current_physical_location = 'not_in_library'
+                student.target_library_id = None
+                student.status = "off_campus"
+                student.travel_time_remaining = 0
+                student.attempted_libraries = []
+                student.known_library_full = []
+             
     def get_network_visualization_data(self):
         """Get data for network visualization"""
         # Normalize lat/lon for visualization
@@ -511,6 +722,7 @@ class LibraryNetworkModel(mesa.Model):
         max_y = max(node_y_values)
         buffer = 0.1 * (max_y - min_y)  # Add 10% padding above the highest node
 
+        
         # Create edges for Plotly
         edge_x, edge_y, edge_labels = [], [], []
         for edge in self.graph.edges(data=True):
@@ -542,9 +754,14 @@ class LibraryNetworkModel(mesa.Model):
             library = self.libraries[node]
             lecture_count = lecture_counts.get(node, 0)
             
-            # Include lecture count in node label
-            node_labels.append(f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}")
+            # Only add lecture count for Queens library (node ID 6)
+            if node == 6:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}<br>Lecture: {lecture_count}"
+            else:
+                node_label = f"{library.name}<br>Library: {library.occupancy}/{library.capacity}"
             
+            node_labels.append(node_label)
+     
             occupancy_pct = library.get_occupancy_percentage()
             
             # Color node based on occupancy percentage
@@ -556,6 +773,8 @@ class LibraryNetworkModel(mesa.Model):
                 color = 'red'  # High occupancy
                 
             node_colors.append(color)
+        
+        day, current_hour, current_minute = self.get_day_and_time()
             
         # Get counts for different student states
         students_in_libraries = self.get_students_in_library()
@@ -566,9 +785,6 @@ class LibraryNetworkModel(mesa.Model):
         # Verify total matches
         total_students = students_in_libraries + students_in_lecture + students_traveling + students_off_campus
             
-        # Add this information to the title
-        current_hour = self.get_hour()
-        
         return {
             'edge_x': edge_x,
             'edge_y': edge_y,
@@ -577,8 +793,9 @@ class LibraryNetworkModel(mesa.Model):
             'node_y': node_y,
             'node_labels': node_labels,
             'node_colors': node_colors,
-            'day': self.day,
+            'day': day,
             'hour': current_hour,
+            'minute': current_minute,
             'students_in_libraries': students_in_libraries,
             'students_in_lecture': students_in_lecture,
             'students_traveling': students_traveling, 
@@ -591,10 +808,10 @@ class LibraryNetworkModel(mesa.Model):
     
 #---------------------------------------------------------------------------------------------------------------
 
-def run_library_simulation_with_frames(steps=144, student_count=10, update_interval=3, 
-                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None):
+def run_library_simulation_with_frames(days=5, student_count=10, update_interval=1, 
+                                      start_hour=8, end_hour=20, student_data=None, faculty_library_mapping=None, occupancy_knowledge_proportion=1.0):
     """
-    Run the library simulation and create an animation with frames
+    Run the library simulation for a specified number of days (default 5 days = one week)
     Update interval of 1 means create a frame for every step (15 minutes)
     """ 
     # Create the model with specified operating hours and student data
@@ -603,107 +820,114 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
         start_hour=start_hour,
         end_hour=end_hour,
         student_data=student_data,
-        faculty_library_mapping=faculty_library_mapping
+        faculty_library_mapping=faculty_library_mapping,
+        occupancy_knowledge_proportion=occupancy_knowledge_proportion
     )
     
     # Create a frame for each 15-minute interval
     frames = []
     
-    # Calculate total number of 15-minute intervals (4 per hour)
-    total_5min_intervals = (end_hour - start_hour) * 12 + 1
+    intervals_per_day = (end_hour - start_hour) * 4
+    total_intervals = intervals_per_day * days
     
-    # Run simulation for each 5-minute interval
-    for step in range(total_5min_intervals):
-        # Set the model's time to this step
-        model.current_step = step
-        
-        # only create visualisation frames every 15mins (every 3 steps)
-        if step % 3 ==0:
-            # Calculate current hour and minutes
-            current_hour = start_hour + (step // 12)
-            current_minute = (step % 12) * 5
-        
-            # Get network data for this step
-            vis_data = model.get_network_visualization_data()
-        
-            # Create a frame for this step
-            frame = {
-                "name": f"step_{step//3}",
-                "data": [
-                    # Edges
-                    {
-                        "type": "scatter",
-                        "x": vis_data['edge_x'],
-                        "y": vis_data['edge_y'],
-                        "mode": "lines",
-                        "line": {"width": 2, "color": "black"},
-                        "hoverinfo": "none"
-                    },
-                    # Edge labels
-                    {
-                        "type": "scatter",
-                        "x": [label[0] for label in vis_data['edge_labels']],
-                        "y": [label[1] for label in vis_data['edge_labels']],
-                        "mode": "text",
-                        "text": [label[2] for label in vis_data['edge_labels']],
-                        "textposition": "top center",
-                        "hoverinfo": "none"
-                    },
-                    # Nodes
-                    {
-                        "type": "scatter",
-                        "x": vis_data['node_x'],
-                        "y": vis_data['node_y'],
-                        "mode": "markers+text",
-                        "text": vis_data['node_labels'],
-                        "textposition": "top center",
-                        "marker": {
-                            "size": 25,
-                            "color": vis_data['node_colors'],
-                            "line": {"width": 2, "color": "black"}
-                        }
-                    }
-                ],
-                "layout": {
-                    "title": (f"Library Network - Day {vis_data['day']}, {current_hour}:{current_minute:02d}<br>"
-                              f"Students: {vis_data['students_in_libraries']} in Libraries, "
-                              f"{vis_data['students_in_lecture']} in Lectures, "
-                              f"{vis_data['students_traveling']} Traveling, "
-                              f"{vis_data['students_off_campus']} Off Campus "
-                              f"(Total: {vis_data['total_students']}/{student_count})")
-                }
-            }
-        
-            # Add the frame
-            frames.append(frame)
-        
-        # Run the simulation for one step (15 minutes)
-        if step < total_5min_intervals - 1:  # Don't step after the last frame
-            model.step()
+    day_names = ["Mon", "Tues", "Wed", "Thur", "Fri"]
     
-    # Create slider steps for all 15-minute intervals
-    slider_steps = []
-    
-    total_15min_intervals = ((end_hour - start_hour) * 4) + 1
-    for step in range(total_15min_intervals):
-        current_hour = start_hour + (step // 4)
+    # Run simulation for each 15-minute interval
+    for step in range(total_intervals):
+        # Calculate current day, hour and minute
+        current_day = (step // intervals_per_day) % 5  # 0-4 for Monday-Friday
+        current_hour = start_hour + ((step % intervals_per_day) // 4)
         current_minute = (step % 4) * 15
         
-        # Only add hour marks as labeled steps
-        if current_minute == 0:
-            label = f"{current_hour}:00"
-        else:
-            # For 15-min intervals, use a small mark "|" instead of a label
-            label = "|"
-            
-        slider_steps.append({
-            "args": [
-                [f"step_{step}"],
-                {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"}
+        model.current_step = step
+        model.step()
+        
+        # Get network data for this step
+        vis_data = model.get_network_visualization_data()
+        
+        # Create a frame for this step
+        frame = {
+            "name": f"step_{step}",
+            "data": [
+                # Edges
+                {
+                    "type": "scatter",
+                    "x": vis_data['edge_x'],
+                    "y": vis_data['edge_y'],
+                    "mode": "lines",
+                    "line": {"width": 2, "color": "black"},
+                    "hoverinfo": "none"
+                },
+                # Edge labels
+                {
+                    "type": "scatter",
+                    "x": [label[0] for label in vis_data['edge_labels']],
+                    "y": [label[1] for label in vis_data['edge_labels']],
+                    "mode": "text",
+                    "text": [label[2] for label in vis_data['edge_labels']],
+                    "textposition": "top center",
+                    "hoverinfo": "none"
+                },
+                # Nodes
+                {
+                    "type": "scatter",
+                    "x": vis_data['node_x'],
+                    "y": vis_data['node_y'],
+                    "mode": "markers+text",
+                    "text": vis_data['node_labels'],
+                    "textposition": "top center",
+                    "marker": {
+                        "size": 25,
+                        "color": vis_data['node_colors'],
+                        "line": {"width": 2, "color": "black"}
+                    }
+                }
             ],
-            "label": label,
-            "method": "animate"
-        })
+            "layout": {
+                "title": (f"Library Network - {day_names[current_day]}, {current_hour}:{current_minute:02d}<br>"
+                          f"Students: {vis_data['students_in_libraries']} in Libraries, "
+                          f"{vis_data['students_in_lecture']} in Lectures, "
+                          f"{vis_data['students_traveling']} Traveling, "
+                          f"{vis_data['students_off_campus']} Off Campus "
+                          f"(Total: {vis_data['total_students']}/{student_count})")
+            }
+        }
+        
+        # Add the frame
+        frames.append(frame)
+        
+    # Create slider steps with clearer day/time labels
+    slider_steps = []
+    
+    for step in range(total_intervals):
+        # Calculate current day, hour and minute
+        current_day = step // intervals_per_day
+        current_hour = start_hour + ((step % intervals_per_day) // 4)
+        current_minute = (step % 4) * 15
+        
+        # Format the slider labels
+        if current_minute == 0:
+            # For full hours, show the day and hour
+            if current_hour == start_hour:
+                # For the start of each day, show the day name
+                label = f"{day_names[current_day]} {current_hour}:00"
+            else:
+                # For other hours, just show the hour
+                label = f"{current_hour}:00"
+        else:
+            # For 15-min intervals, use a small mark instead of a label
+            label = ""
+        
+        # Only add visible markers at hours or significant times
+        if current_minute == 0:
+            slider_steps.append({
+                "args": [
+                    [f"step_{step}"],
+                    {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"}
+                ],
+                "label": label,
+                "method": "animate"
+            })
     
     # Create the initial figure using the first frame
     initial_frame = frames[0] if frames else {"data": [], "layout": {"title": "No data"}}
@@ -712,7 +936,7 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
     fig = go.Figure(
         data=initial_frame["data"],
         layout=go.Layout(
-            title=f"Library Network Simulation ({start_hour}:00-{end_hour}:00)",
+            title=f"Weekly Library Network Simulation (Mon-Fri, {start_hour}:00-{end_hour}:00)",
             showlegend=False,
             updatemenus=[{
                 "type": "buttons",
@@ -757,5 +981,7 @@ def run_library_simulation_with_frames(steps=144, student_count=10, update_inter
         ),
         frames=frames
     )
-    fig.show(renderer="browser")
+
+    # fig.show(renderer="browser")
     return model
+
