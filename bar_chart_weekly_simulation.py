@@ -16,7 +16,7 @@ library_names = library_data['LibraryName '].tolist()
 library_capacities = library_data.set_index("LibraryName ")["Capacity"].to_dict()
 
 # Load the simulation results
-results = pd.read_csv("weekly_library_simulation_results.csv")['Library_Occupancy']
+results = pd.read_csv("all_simulation_runs.csv")['Library_Occupancy']
 
 # Initialize the new dataframe
 occupancy_df = pd.DataFrame(index=range(240), columns=library_names)
@@ -102,7 +102,7 @@ def create_library_occupancy_animation(occupancy_df):
             updatemenus=[{
                 'buttons': [
                     {
-                        'args': [None, {'frame': {'duration': 750, 'redraw': True},
+                        'args': [None, {'frame': {'duration': 50, 'redraw': True},
                                         'fromcurrent': True, 
                                         'transition': {'duration': 0}}],
                         'label': 'Play',

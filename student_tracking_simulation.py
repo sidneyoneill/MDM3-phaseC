@@ -241,7 +241,7 @@ class Student(mesa.Agent):
                             if self.model.graph.has_edge(current_library, next_library):
                                 travel_time_minutes = self.model.graph[current_library][next_library]['weight']
                                 travel_time_steps = math.ceil(travel_time_minutes / 5)
-                                self.travel_time_remaining = travel_time_steps -1 
+                                self.travel_time_remaining = travel_time_steps # -1
                             else:
                                 # No direct path, set default travel time
                                 self.travel_time_remaining = random.randint(1, 4)  # 5-20 min
@@ -608,7 +608,7 @@ class LibraryNetworkModel(mesa.Model):
                                 else:
                                     # Default if no direct path
                                     total_travel_time = 5
-                                
+                                    
                                 # Calculate progress along path (0 to 1)
                                 if total_travel_time >= 0:
                                     progress = 1 - (agent.travel_time_remaining / total_travel_time)
@@ -633,6 +633,37 @@ class LibraryNetworkModel(mesa.Model):
                             start_pos = pos[last_attempted]
                             end_pos = pos[agent.target_library_id]
                             
+                            
+                            # Get original travel time from graph (or calculate a default)
+                            if self.graph.has_edge(last_attempted, agent.target_library_id):
+                                total_travel_time = math.ceil(self.graph[last_attempted][agent.target_library_id]['weight'] / 5)
+                            else:
+                                # Default if no direct path
+                                total_travel_time = 5
+                                
+                            # Check if travel has actually started
+                            if agent.travel_time_remaining < total_travel_time:
+                                # Student is already moving along the edge
+                                # Calculate progress along path (0 to 1)
+                                progress = 1 - (agent.travel_time_remaining / total_travel_time)
+                                
+                                # Ensure progress is between 0 and 1
+                                progress = max(0, min(1, progress))
+                                
+                                # Interpolate position
+                                x = start_pos[0] + progress * (end_pos[0] - start_pos[0])
+                                y = start_pos[1] + progress * (end_pos[1] - start_pos[1])
+                                
+                                tracked_student_pos = (x, y)
+                            else:
+                                # Student is still at the node, hasn't started traveling yet
+                                tracked_student_pos = start_pos
+                            
+                            
+                            
+                            
+                            
+                            """
                             # Calculate progress (similar to existing code)
                             if agent.travel_time_remaining >= 0:
                                 progress = 1 - (agent.travel_time_remaining / 5)  # Simplified for clarity
@@ -645,7 +676,8 @@ class LibraryNetworkModel(mesa.Model):
                             x = start_pos[0] + progress * (end_pos[0] - start_pos[0])
                             y = start_pos[1] + progress * (end_pos[1] - start_pos[1])
                             
-                            tracked_student_pos = (x, y)        
+                            tracked_student_pos = (x, y)   
+                            """
                              
                     elif agent.current_library_id == 'not_in_library' and agent.target_library_id != 'not_in_library':
                         # Coming from off-campus to a library - only place at target library if travel is complete

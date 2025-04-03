@@ -18,7 +18,7 @@ HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 4  # 15-minute steps
 STUDENT_COUNT = 4000  # Now simulating 100 students
 NUM_DAYS = 5
-NUM_SIMULATIONS = 5
+NUM_SIMULATIONS = 1
 
 
 def run_multiple_simulations(num_simulations=5, days=5, student_count=4000, 

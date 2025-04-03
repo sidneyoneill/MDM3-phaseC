@@ -6,7 +6,7 @@ Monte Carlo student schedule generator for library simulation
 
 import random
 import numpy as np
-"""
+
 # Faculty to library mapping with preferred and avoided libraries
 faculty_library_mapping = {
     "Engineering": {
@@ -64,7 +64,7 @@ faculty_library_mapping = {
         "avoided": []
     }
 }
-
+"""
 # Statistical profiles for each faculty
 faculty_characteristics = {
     "Engineering": {

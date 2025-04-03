@@ -5,9 +5,14 @@ Created on Thu Mar  6 18:20:56 2025
 
 @author: lewisvaughan
 """
-
+import random
+import numpy as np
 from student_tracking_simulation import run_library_simulation_with_frames
 from daily_student_data import generate_student_population, faculty_library_mapping
+
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
 
 # Define operating hours
 START_HOUR = 8    # 8am
@@ -15,7 +20,7 @@ END_HOUR = 20     # 8pm
 HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 12  
 STUDENT_COUNT = 4000 
-TRACKED_STUDENT_ID = 0 # comment out if want no tracking
+TRACKED_STUDENT_ID = 3 # comment out if want no tracking
 
 # Generate Monte Carlo student data
 student_data = generate_student_population(
@@ -35,9 +40,7 @@ model = run_library_simulation_with_frames(
     tracked_student_id = TRACKED_STUDENT_ID
 )
 
-# After simulation completes, analyze the data
-results = model.datacollector.get_model_vars_dataframe()
-print(results.tail())
+
 
 # Save the results to CSV for further analysis
 # results.to_csv("library_simulation_results.csv")

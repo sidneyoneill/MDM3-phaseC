@@ -795,7 +795,7 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
                     {
                         "label": "Play",
                         "method": "animate",
-                        "args": [None, {"frame": {"duration": 500, "redraw": True}, "fromcurrent": True}]
+                        "args": [None, {"frame": {"duration": 50, "redraw": True}, "fromcurrent": True}]
                     },
                     {
                         "label": "Pause",
@@ -833,6 +833,6 @@ def run_library_simulation_with_frames(days=5, student_count=10, update_interval
         frames=frames
     )
 
-    # fig.show(renderer="browser")
+    fig.show(renderer="browser")
     return model
 

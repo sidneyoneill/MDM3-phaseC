@@ -11,6 +11,7 @@ from weekly_library_simulation_knowledge import run_library_simulation_with_fram
 from weekly_student_data import generate_student_population, faculty_library_mapping
 from weekly_library_metrics import calculate_library_metrics, print_aggregated_metrics, aggregate_metrics
 
+
 # Define operating hours
 START_HOUR = 8    # 8am
 END_HOUR = 20     # 8pm
@@ -18,11 +19,11 @@ HOURS_TO_SIMULATE = END_HOUR - START_HOUR
 STEPS_PER_HOUR = 4  # 15-minute steps
 STUDENT_COUNT = 4000  # Now simulating 100 students
 NUM_DAYS = 5
-NUM_SIMULATIONS = 5
+NUM_SIMULATIONS = 20
 
 def run_multiple_simulations(num_simulations=5, days=5, student_count=4000, 
                             update_interval=1, start_hour=8, end_hour=20,
-                            faculty_library_mapping=None, occupancy_knowledge_proportion=1.0):
+                            faculty_library_mapping=None, occupancy_knowledge_proportion=0.0):
     """
     Run multiple library simulations and aggregate the results.
     """
